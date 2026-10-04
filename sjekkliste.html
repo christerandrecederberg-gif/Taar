@@ -1,0 +1,530 @@
+<title>Taar Sjekkliste</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Figtree:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one narrow column built for a phone behind the bar; tabs at the top, big tap rows, report as a dense date table. */
+:root {
+  --bg: #eef1f2;
+  --surface: #ffffff;
+  --sunk: #e3e8ea;
+  --ink: #15212a;
+  --muted: #5a6872;
+  --line: #d2d9dd;
+  --accent: #0d6466;
+  --accent-ink: #ffffff;
+  --accent-soft: #d6ebea;
+  --ok: #2a7a4b;
+  --ok-soft: #dcefe3;
+  --warn: #a2650f;
+  --warn-soft: #f7ead2;
+  --bad: #b02a22;
+  --bad-soft: #f8dedb;
+  --f-display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --f-body: "Figtree", "Segoe UI", system-ui, sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --r: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #11171b; --surface: #1a2227; --sunk: #0c1114; --ink: #e6ecef; --muted: #93a2ab; --line: #2b363d;
+    --accent: #4fbdb9; --accent-ink: #082020; --accent-soft: #173537;
+    --ok: #5cc68a; --ok-soft: #173426; --warn: #e3a648; --warn-soft: #3a2b12; --bad: #f07a70; --bad-soft: #3d1c19;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #11171b; --surface: #1a2227; --sunk: #0c1114; --ink: #e6ecef; --muted: #93a2ab; --line: #2b363d;
+  --accent: #4fbdb9; --accent-ink: #082020; --accent-soft: #173537;
+  --ok: #5cc68a; --ok-soft: #173426; --warn: #e3a648; --warn-soft: #3a2b12; --bad: #f07a70; --bad-soft: #3d1c19;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--f-body); font-size: 16px; line-height: 1.45; }
+.wrap { max-width: 720px; margin: 0 auto; padding-inline: 16px; padding-block: 12px 48px; display: grid; gap: 18px; }
+h1, h2, h3 { font-family: var(--f-display); margin: 0; text-wrap: balance; line-height: 1.1; }
+h1 { font-size: 1.7rem; font-weight: 700; letter-spacing: -0.01em; }
+h2 { font-size: 1.3rem; font-weight: 700; }
+h3 { font-size: 0.78rem; font-family: var(--f-body); font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+p { margin: 0; }
+.mono { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+.muted { color: var(--muted); }
+button, input, textarea, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+header.top { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+header.top .date { font-family: var(--f-mono); font-size: 0.85rem; color: var(--muted); }
+nav.tabs { display: flex; gap: 4px; background: var(--sunk); padding: 4px; border-radius: 999px; overflow-x: auto; }
+nav.tabs button { border: 0; background: transparent; padding: 8px 16px; border-radius: 999px; font-weight: 600; color: var(--muted); white-space: nowrap; }
+nav.tabs button[aria-current="page"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgb(0 0 0 / 0.12); }
+
+.banner { padding: 12px 14px; border-radius: var(--r); background: var(--warn-soft); color: var(--ink); border: 1px solid var(--warn); font-size: 0.95rem; }
+.namebar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.namebar label { font-weight: 600; }
+.namebar input { flex: 1 1 180px; min-width: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); }
+.namebar.need input { border-color: var(--bad); background: var(--bad-soft); }
+
+.shifts { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.shift { text-align: left; border: 1px solid var(--line); background: var(--surface); border-radius: 14px; padding: 18px; display: grid; gap: 12px; }
+.shift:hover { border-color: var(--accent); }
+.shift .row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.shift .big { font-family: var(--f-display); font-size: 1.6rem; font-weight: 700; }
+.shift .count { font-family: var(--f-mono); font-size: 0.95rem; color: var(--muted); }
+.bar { height: 8px; border-radius: 99px; background: var(--sunk); overflow: hidden; }
+.bar > i { display: block; height: 100%; background: var(--accent); border-radius: 99px; transition: width .25s; }
+.bar.done > i { background: var(--ok); }
+
+.pill { display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; border-radius: 999px; font-size: 0.8rem; font-weight: 600; white-space: nowrap; }
+.pill.ok { background: var(--ok-soft); color: var(--ok); }
+.pill.warn { background: var(--warn-soft); color: var(--warn); }
+.pill.bad { background: var(--bad-soft); color: var(--bad); }
+.pill.idle { background: var(--sunk); color: var(--muted); }
+
+.week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+.day { display: grid; gap: 4px; justify-items: center; font-size: 0.75rem; color: var(--muted); }
+.day .dots { display: flex; gap: 4px; }
+.dot { width: 14px; height: 14px; border-radius: 50%; background: var(--sunk); border: 2px solid var(--line); }
+.dot.ok { background: var(--ok); border-color: var(--ok); }
+.dot.warn { background: var(--warn); border-color: var(--warn); }
+.dot.bad { background: transparent; border-color: var(--bad); }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 0.8rem; color: var(--muted); }
+.legend span { display: inline-flex; gap: 6px; align-items: center; }
+
+.runhead { display: grid; gap: 10px; position: sticky; top: env(safe-area-inset-top, 0px); background: var(--bg); padding-block: 10px; z-index: 2; }
+.runhead .row { display: flex; justify-content: space-between; gap: 12px; align-items: center; flex-wrap: wrap; }
+.back { border: 0; background: none; color: var(--accent); font-weight: 600; padding: 4px 0; }
+.section { display: grid; gap: 8px; }
+.items { display: grid; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); overflow: hidden; }
+.item { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 14px; align-items: start; padding: 14px 16px; border-top: 1px solid var(--line); }
+.item:first-child { border-top: 0; }
+.item .tick { width: 34px; height: 34px; border-radius: 9px; border: 2px solid var(--line); background: var(--bg); display: grid; place-items: center; padding: 0; }
+.item .tick svg { width: 20px; height: 20px; stroke: var(--accent-ink); stroke-width: 3; fill: none; opacity: 0; }
+.item.on .tick { background: var(--accent); border-color: var(--accent); }
+.item.on .tick svg { opacity: 1; }
+.item .txt { display: grid; gap: 4px; min-width: 0; }
+.item .label { font-weight: 500; cursor: pointer; }
+.item.on .label { color: var(--muted); }
+.item .meta { font-size: 0.8rem; color: var(--muted); font-family: var(--f-mono); }
+.item .val { display: flex; gap: 6px; align-items: center; }
+.item .val input { width: 7.5em; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); font-family: var(--f-mono); }
+textarea { width: 100%; min-height: 84px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); resize: vertical; }
+
+.btn { border: 1px solid var(--line); background: var(--surface); padding: 10px 16px; border-radius: var(--r); font-weight: 600; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.danger { background: var(--bad); border-color: var(--bad); color: var(--surface); }
+.btn.small { padding: 6px 10px; font-size: 0.85rem; }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.confirm { display: grid; gap: 10px; padding: 14px; border-radius: var(--r); background: var(--warn-soft); border: 1px solid var(--warn); }
+.confirm ul { margin: 0; padding-left: 20px; }
+
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.tile { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: grid; gap: 2px; }
+.tile b { font-family: var(--f-display); font-size: 1.7rem; font-variant-numeric: tabular-nums; }
+.tile span { font-size: 0.85rem; color: var(--muted); }
+.seg { display: inline-flex; gap: 4px; background: var(--sunk); padding: 3px; border-radius: 999px; }
+.seg button { border: 0; background: transparent; padding: 5px 12px; border-radius: 999px; font-size: 0.85rem; font-weight: 600; color: var(--muted); }
+.seg button[aria-pressed="true"] { background: var(--surface); color: var(--ink); }
+.rep { display: grid; gap: 0; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); overflow: hidden; }
+.repday { display: grid; grid-template-columns: 5.5em minmax(0, 1fr); gap: 12px; padding: 12px 14px; border-top: 1px solid var(--line); }
+.repday:first-child { border-top: 0; }
+.repday .d { font-family: var(--f-mono); font-size: 0.85rem; }
+.repday .d small { display: block; color: var(--muted); }
+.repshift { display: grid; gap: 4px; min-width: 0; }
+.repshift + .repshift { margin-top: 8px; }
+.repshift .line1 { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.repshift .who { font-size: 0.85rem; color: var(--muted); }
+.repshift ul { margin: 0; padding-left: 18px; font-size: 0.88rem; color: var(--bad); }
+.repshift .note { font-size: 0.88rem; border-left: 3px solid var(--warn); padding-left: 8px; }
+.repshift .vals { font-size: 0.82rem; color: var(--muted); font-family: var(--f-mono); }
+
+.edit { display: grid; gap: 8px; }
+.erow { display: grid; grid-template-columns: minmax(0, 1fr) 7em 5em auto; gap: 6px; align-items: center; }
+.erow input { min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.erow .ctl { display: flex; gap: 4px; }
+.ehead { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+@media (max-width: 560px) {
+  .erow { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .erow .t { grid-column: 1 / -1; }
+  .erow .ctl { grid-column: 1 / -1; justify-content: flex-end; }
+  .ehead { display: none; }
+}
+.empty { padding: 28px 18px; border: 1px dashed var(--line); border-radius: 14px; text-align: center; display: grid; gap: 10px; justify-items: center; }
+.toast { position: fixed; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 999px; font-weight: 600; font-size: 0.9rem; z-index: 10; }
+@media (prefers-reduced-motion: reduce) { .bar > i { transition: none; } }
+</style>
+
+<div class="wrap" id="app">
+  <header class="top">
+    <div>
+      <h1>Taar sjekkliste</h1>
+      <div class="date" id="today"></div>
+    </div>
+  </header>
+  <div class="empty"><p>Laster sjekklistene…</p></div>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+(() => {
+  const SHIFTS = { open: "Åpning", close: "Stenging" };
+  const DAY_CUTOFF_H = 6; // Before 06:00 counts as the previous business day (closing after midnight).
+  const WD = ["søn", "man", "tir", "ons", "tor", "fre", "lør"];
+  const MON = ["jan", "feb", "mar", "apr", "mai", "jun", "jul", "aug", "sep", "okt", "nov", "des"];
+
+  const S = {
+    db: null, user: null, isOwner: false, dbReady: false, readOnly: false,
+    config: null, configLoaded: false, runs: new Map(), runsLoaded: false,
+    view: "home", active: null, confirm: false, reportDays: 14,
+    draft: null, editType: "open", name: lsGet("taar.name") || "", needName: false,
+  };
+  const app = document.getElementById("app");
+  const queues = new Map();
+
+  function lsGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
+  function lsSet(k, v) { try { localStorage.setItem(k, v); } catch {} }
+  const pad = (n) => String(n).padStart(2, "0");
+  const ymd = (d) => d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
+  const bizDate = (d = new Date()) => ymd(new Date(d.getTime() - DAY_CUTOFF_H * 3600e3));
+  const parseYmd = (s) => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); };
+  const addDays = (s, n) => { const d = parseYmd(s); d.setDate(d.getDate() + n); return ymd(d); };
+  const fmtDay = (s) => { const d = parseYmd(s); return WD[d.getDay()] + " " + d.getDate() + ". " + MON[d.getMonth()]; };
+  const hhmm = (iso) => { if (!iso) return ""; const d = new Date(iso); return pad(d.getHours()) + ":" + pad(d.getMinutes()); };
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const runId = (date, type) => date + "_" + type;
+  const isOn = (run, id) => !!(run.checked && run.checked[id]);
+  const progress = (run) => { const items = run.items || []; const n = items.filter((i) => isOn(run, i.id)).length; return { n, total: items.length }; };
+  const newId = () => "i" + Math.random().toString(36).slice(2, 8);
+
+  let toastT;
+  function toast(msg) {
+    const t = document.getElementById("toast");
+    t.textContent = msg; t.hidden = false;
+    clearTimeout(t._h); t._h = setTimeout(() => { t.hidden = true; }, 2600);
+  }
+
+  // One write at a time per document.
+  function write(path, fn) {
+    const prev = queues.get(path) || Promise.resolve();
+    const next = prev.then(fn).catch((e) => {
+      if (e && e.code === "invalid_argument") { S.readOnly = true; render(); toast("Du har ikke tilgang til å lagre. Be eieren om redigeringstilgang."); }
+      else if (e && e.code === "quota_exceeded") toast("Lagringen er full. Kontakt eieren.");
+      else toast("Kunne ikke lagre. Sjekk nettet og prøv igjen.");
+    });
+    queues.set(path, next);
+    return next;
+  }
+
+  function requireName() {
+    if (S.name.trim()) return true;
+    S.needName = true; render();
+    const inp = document.getElementById("staff-name"); if (inp) inp.focus();
+    toast("Skriv navnet ditt først");
+    return false;
+  }
+
+  // ---------- status helpers ----------
+  function shiftStatus(date, type) {
+    const run = S.runs.get(runId(date, type));
+    const today = bizDate();
+    if (!run) return { cls: date < today ? "bad" : "idle", label: date < today ? "Ikke gjort" : "Ikke startet", run: null };
+    const { n, total } = progress(run);
+    if (run.status === "done") {
+      const miss = total - n;
+      return miss ? { cls: "warn", label: `Fullført, ${miss} mangler`, run } : { cls: "ok", label: "Fullført", run };
+    }
+    return { cls: date < today ? "bad" : "warn", label: date < today ? "Ikke fullført" : "Pågår", run };
+  }
+
+  // ---------- render ----------
+  let pendingRender = false;
+  function render() {
+    const a = document.activeElement;
+    if (a && app.contains(a) && (a.tagName === "TEXTAREA" || (a.tagName === "INPUT" && a.type !== "checkbox"))) { pendingRender = true; return; }
+    pendingRender = false;
+    const y = window.scrollY;
+    app.innerHTML = header() + body();
+    if (S.view === "run") window.scrollTo(0, y);
+  }
+  app.addEventListener("focusout", () => setTimeout(() => { if (pendingRender) render(); }, 0));
+
+  function header() {
+    const tabs = [["home", "I dag"], ["report", "Rapport"]];
+    if (S.isOwner) tabs.push(["setup", "Oppsett"]);
+    const cur = S.view === "run" ? "home" : S.view;
+    return `<header class="top"><div><h1>Taar sjekkliste</h1><div class="date">${esc(fmtDay(bizDate()))} · driftsdøgn til kl. 0${DAY_CUTOFF_H}</div></div>
+      <nav class="tabs" aria-label="Visning">${tabs.map(([k, l]) => `<button data-act="view" data-v="${k}" ${cur === k ? 'aria-current="page"' : ""}>${l}</button>`).join("")}</nav></header>
+      ${!S.db && S.dbReady ? `<div class="banner">Lagring er ikke tilgjengelig her. Åpne lenken i Claude mens du er logget inn for å krysse av.</div>` : ""}
+      ${S.readOnly ? `<div class="banner">Du kan se sjekklistene, men ikke krysse av. Be eieren invitere deg med redigeringstilgang.</div>` : ""}`;
+  }
+
+  function nameBar() {
+    return `<div class="namebar ${S.needName && !S.name.trim() ? "need" : ""}"><label for="staff-name">Ditt navn</label>
+      <input id="staff-name" autocomplete="name" placeholder="F.eks. Ida" value="${esc(S.name)}" maxlength="40"></div>`;
+  }
+
+  function body() {
+    if (S.view === "run") return runView();
+    if (S.view === "report") return reportView();
+    if (S.view === "setup" && S.isOwner) return setupView();
+    return homeView();
+  }
+
+  function homeView() {
+    const today = bizDate();
+    if (!S.configLoaded) return `<div class="empty"><p>Laster sjekklistene…</p></div>`;
+    if (!S.config) {
+      return nameBar() + `<div class="empty"><h2>Ingen sjekklister satt opp ennå</h2>
+        <p class="muted">Eieren legger inn punktene for åpning og stenging under Oppsett.</p>
+        ${S.isOwner ? `<button class="btn primary" data-act="view" data-v="setup">Sett opp sjekklister</button>` : ""}</div>`;
+    }
+    const cards = Object.keys(SHIFTS).map((type) => {
+      const st = shiftStatus(today, type);
+      const items = st.run ? st.run.items : (S.config[type] || []);
+      const p = st.run ? progress(st.run) : { n: 0, total: items.length };
+      const pct = p.total ? Math.round((p.n / p.total) * 100) : 0;
+      const sub = st.run && st.run.status === "done"
+        ? `Fullført ${hhmm(st.run.completedAt)} av ${esc(st.run.completedBy || "–")}`
+        : st.run ? `Startet ${hhmm(st.run.startedAt)} av ${esc(st.run.startedBy || "–")}` : `${p.total} punkter`;
+      return `<button class="shift" data-act="open" data-type="${type}">
+        <div class="row"><span class="big">${SHIFTS[type]}</span><span class="pill ${st.cls}">${st.label}</span></div>
+        <div class="bar ${st.run && st.run.status === "done" ? "done" : ""}"><i style="width:${pct}%"></i></div>
+        <div class="row"><span class="muted">${sub}</span><span class="count">${p.n}/${p.total}</span></div></button>`;
+    }).join("");
+    const days = [];
+    for (let i = 6; i >= 0; i--) days.push(addDays(today, -i));
+    const week = days.map((d) => {
+      const dots = Object.keys(SHIFTS).map((t) => { const s = shiftStatus(d, t); return `<i class="dot ${s.cls === "idle" ? "" : s.cls}" title="${SHIFTS[t]}: ${esc(s.label)}"></i>`; }).join("");
+      return `<div class="day"><span>${WD[parseYmd(d).getDay()]}</span><span class="dots">${dots}</span></div>`;
+    }).join("");
+    return nameBar() + `<section class="shifts">${cards}</section>
+      <section class="section"><h3>Siste 7 dager · åpning / stenging</h3><div class="week">${week}</div>
+      <div class="legend"><span><i class="dot ok"></i>Alt krysset</span><span><i class="dot warn"></i>Punkter mangler</span><span><i class="dot bad"></i>Ikke gjort</span></div></section>`;
+  }
+
+  function runView() {
+    const run = S.runs.get(S.active);
+    if (!run) return `<div class="empty"><p>Henter sjekklisten…</p><button class="btn" data-act="view" data-v="home">Tilbake</button></div>`;
+    const { n, total } = progress(run);
+    const done = run.status === "done";
+    const pct = total ? Math.round((n / total) * 100) : 0;
+    const groups = [];
+    for (const it of run.items || []) {
+      const g = it.section || "Annet";
+      let grp = groups.find((x) => x.name === g);
+      if (!grp) { grp = { name: g, items: [] }; groups.push(grp); }
+      grp.items.push(it);
+    }
+    const dis = !S.db || S.readOnly ? "disabled" : "";
+    const sections = groups.map((g) => `<section class="section"><h3>${esc(g.name)}</h3><div class="items">${g.items.map((it) => {
+      const c = run.checked && run.checked[it.id];
+      const meta = c ? `${hhmm(c.at)} · ${esc(c.by || "–")}` : "";
+      return `<div class="item ${c ? "on" : ""}">
+        <button class="tick" data-act="tick" data-id="${esc(it.id)}" role="checkbox" aria-checked="${c ? "true" : "false"}" aria-label="${esc(it.text)}" ${dis}><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></button>
+        <div class="txt"><span class="label" data-act="tick" data-id="${esc(it.id)}">${esc(it.text)}</span>
+        ${it.unit ? `<span class="val"><input id="val-${esc(it.id)}" data-val="${esc(it.id)}" inputmode="decimal" placeholder="Verdi" value="${esc(c && c.value != null ? c.value : "")}" ${dis}><span class="muted">${esc(it.unit)}</span></span>` : ""}
+        ${meta ? `<span class="meta">${meta}</span>` : ""}</div></div>`;
+    }).join("")}</div></section>`).join("");
+    const missing = (run.items || []).filter((i) => !isOn(run, i.id));
+    const confirm = S.confirm && missing.length ? `<div class="confirm" role="alert"><strong>${missing.length} punkter er ikke krysset av:</strong>
+      <ul>${missing.map((m) => `<li>${esc(m.text)}</li>`).join("")}</ul>
+      <p>Skriv gjerne hvorfor i kommentarfeltet. De blir med i rapporten.</p>
+      <div class="actions"><button class="btn danger" data-act="finish" data-force="1">Fullfør likevel</button><button class="btn" data-act="cancel-confirm">Fortsett å krysse av</button></div></div>` : "";
+    return `<div class="runhead"><div class="row"><button class="back" data-act="view" data-v="home">← Tilbake</button>
+        <span class="pill ${done ? (missing.length ? "warn" : "ok") : "idle"}">${done ? `Fullført ${hhmm(run.completedAt)}` : "Pågår"}</span></div>
+      <div class="row"><h2>${SHIFTS[run.type]} · ${esc(fmtDay(run.date))}</h2><span class="mono">${n}/${total}</span></div>
+      <div class="bar ${done ? "done" : ""}"><i style="width:${pct}%"></i></div></div>
+      ${nameBar()}
+      ${sections}
+      <section class="section"><h3>Kommentar / avvik</h3>
+        <textarea id="run-comment" placeholder="F.eks. tom for lime, kjøleskap 2 viste 7 °C, ringte servicefirma" ${dis}>${esc(run.comment || "")}</textarea></section>
+      ${confirm}
+      <div class="actions">${done
+        ? `<button class="btn" data-act="reopen" ${dis}>Gjenåpne sjekklisten</button><span class="muted">Fullført av ${esc(run.completedBy || "–")}</span>`
+        : `<button class="btn primary" data-act="finish" ${dis}>Fullfør ${SHIFTS[run.type].toLowerCase()}</button><span class="muted">${missing.length ? missing.length + " punkter gjenstår" : "Alt er krysset av"}</span>`}</div>`;
+  }
+
+  function reportView() {
+    const today = bizDate();
+    const days = [];
+    for (let i = 0; i < S.reportDays; i++) days.push(addDays(today, -i));
+    let expected = 0, completed = 0, clean = 0, missedItems = 0, notDone = 0, notes = 0;
+    const rows = days.map((d) => {
+      const parts = Object.keys(SHIFTS).map((t) => {
+        const st = shiftStatus(d, t);
+        const run = st.run;
+        if (d < today) expected++;
+        let extra = "";
+        if (run) {
+          const miss = (run.items || []).filter((i) => !isOn(run, i.id));
+          if (run.status === "done") { completed++; if (!miss.length) clean++; missedItems += miss.length; }
+          else if (d < today) notDone++;
+          if (run.comment) notes++;
+          const vals = (run.items || []).filter((i) => i.unit && run.checked && run.checked[i.id] && run.checked[i.id].value != null && run.checked[i.id].value !== "")
+            .map((i) => `${esc(i.text)}: ${esc(run.checked[i.id].value)} ${esc(i.unit)}`);
+          extra = `<span class="who">${run.status === "done" ? `Fullført ${hhmm(run.completedAt)} av ${esc(run.completedBy || "–")}` : `Startet ${hhmm(run.startedAt)} av ${esc(run.startedBy || "–")}`} · ${progress(run).n}/${progress(run).total}</span>
+            ${miss.length && (run.status === "done" || d < today) ? `<ul>${miss.map((m) => `<li>${esc(m.text)}</li>`).join("")}</ul>` : ""}
+            ${vals.length ? `<span class="vals">${vals.join(" · ")}</span>` : ""}
+            ${run.comment ? `<span class="note">${esc(run.comment)}</span>` : ""}`;
+        } else if (d < today) notDone++;
+        return `<div class="repshift"><div class="line1"><strong>${SHIFTS[t]}</strong><span class="pill ${st.cls}">${st.label}</span></div>${extra}</div>`;
+      }).join("");
+      return `<div class="repday"><div class="d">${esc(fmtDay(d))}<small>${d === today ? "i dag" : d}</small></div><div>${parts}</div></div>`;
+    }).join("");
+    const seg = [7, 14, 30].map((n) => `<button data-act="days" data-n="${n}" aria-pressed="${S.reportDays === n}">${n} dager</button>`).join("");
+    return `<div class="actions" style="justify-content:space-between"><h2>Rapport</h2><div class="seg" role="group" aria-label="Periode">${seg}</div></div>
+      <div class="tiles">
+        <div class="tile"><b>${completed}</b><span>sjekklister fullført</span></div>
+        <div class="tile"><b>${clean}</b><span>med alt krysset av</span></div>
+        <div class="tile"><b>${missedItems}</b><span>punkter ikke krysset av</span></div>
+        <div class="tile"><b>${notDone}</b><span>ikke gjort / ikke fullført</span></div>
+      </div>
+      <p class="muted">${expected} vakter i perioden før i dag · ${notes} med kommentar. Dager uten åpent kan stå som «Ikke gjort».</p>
+      <div class="rep">${rows}</div>`;
+  }
+
+  function setupView() {
+    if (!S.draft) { S.draft = JSON.parse(JSON.stringify(S.config || {})); for (const t of Object.keys(SHIFTS)) if (!Array.isArray(S.draft[t])) S.draft[t] = []; }
+    const list = S.draft[S.editType] || [];
+    const seg = Object.keys(SHIFTS).map((t) => `<button data-act="edit-type" data-t="${t}" aria-pressed="${S.editType === t}">${SHIFTS[t]}</button>`).join("");
+    const rows = list.map((it, i) => `<div class="erow">
+      <input class="t" id="e-text-${esc(it.id)}" data-edit="text" data-i="${i}" value="${esc(it.text)}" placeholder="Punkt" aria-label="Punkt">
+      <input id="e-sec-${esc(it.id)}" data-edit="section" data-i="${i}" value="${esc(it.section || "")}" placeholder="Seksjon" aria-label="Seksjon">
+      <input id="e-unit-${esc(it.id)}" data-edit="unit" data-i="${i}" value="${esc(it.unit || "")}" placeholder="Enhet" aria-label="Enhet (valgfri)">
+      <div class="ctl"><button class="btn small" data-act="mv" data-i="${i}" data-d="-1" aria-label="Flytt opp">↑</button><button class="btn small" data-act="mv" data-i="${i}" data-d="1" aria-label="Flytt ned">↓</button><button class="btn small" data-act="rm" data-i="${i}" aria-label="Slett">✕</button></div></div>`).join("");
+    return `<div class="actions" style="justify-content:space-between"><h2>Oppsett</h2><div class="seg" role="group" aria-label="Sjekkliste">${seg}</div></div>
+      <p class="muted">Endringer gjelder nye sjekklister. En sjekkliste som allerede er startet i dag beholder punktene den hadde. Fyll inn «Enhet» (f.eks. °C eller kr) når de ansatte skal skrive inn en verdi.</p>
+      <div class="edit"><div class="erow ehead"><span>Punkt</span><span>Seksjon</span><span>Enhet</span><span></span></div>${rows || `<p class="muted">Ingen punkter ennå.</p>`}</div>
+      <div class="actions"><button class="btn" data-act="add">+ Legg til punkt</button><button class="btn primary" data-act="save" ${S.db ? "" : "disabled"}>Lagre sjekklistene</button><button class="btn" data-act="discard">Forkast endringer</button></div>`;
+  }
+
+  // ---------- actions ----------
+  async function openShift(type) {
+    if (!S.config) return;
+    const date = bizDate();
+    const id = runId(date, type);
+    S.active = id; S.view = "run"; S.confirm = false; render(); window.scrollTo(0, 0);
+    if (S.runs.has(id) || !S.db || S.readOnly) return;
+    if (!requireName()) return;
+    const ref = S.db.doc("runs/" + id);
+    await write(ref.path, async () => {
+      const snap = await ref.get();
+      if (snap.exists) return;
+      await ref.set({
+        type, date, items: (S.config[type] || []).map((i) => ({ id: i.id, text: i.text, section: i.section || "", unit: i.unit || "" })),
+        checked: {}, status: "in_progress", startedAt: new Date().toISOString(), startedBy: S.name.trim(), comment: "",
+      });
+    });
+  }
+
+  function tick(itemId) {
+    const run = S.runs.get(S.active);
+    if (!run || !S.db || S.readOnly) return;
+    if (!requireName()) return;
+    const on = isOn(run, itemId);
+    const ref = S.db.doc("runs/" + S.active);
+    write(ref.path, () => ref.update({ checked: { [itemId]: on ? null : { at: new Date().toISOString(), by: S.name.trim() } } }));
+  }
+
+  function setValue(itemId, value) {
+    const run = S.runs.get(S.active);
+    if (!run || !S.db || S.readOnly) return;
+    const cur = run.checked && run.checked[itemId];
+    if ((cur && cur.value) === value || (!cur && !value)) return;
+    if (!requireName()) return;
+    const ref = S.db.doc("runs/" + S.active);
+    const entry = value ? { at: new Date().toISOString(), by: S.name.trim(), value } : (cur ? { ...cur, value: null } : null);
+    write(ref.path, () => ref.update({ checked: { [itemId]: entry } }));
+  }
+
+  function setComment(text) {
+    const run = S.runs.get(S.active);
+    if (!run || !S.db || S.readOnly || (run.comment || "") === text) return;
+    const ref = S.db.doc("runs/" + S.active);
+    write(ref.path, () => ref.update({ comment: text }));
+  }
+
+  function finish(force) {
+    const run = S.runs.get(S.active);
+    if (!run || !S.db || S.readOnly) return;
+    if (!requireName()) return;
+    const missing = (run.items || []).filter((i) => !isOn(run, i.id));
+    if (missing.length && !force) { S.confirm = true; render(); return; }
+    const ref = S.db.doc("runs/" + S.active);
+    write(ref.path, () => ref.update({
+      status: "done", completedAt: new Date().toISOString(), completedBy: S.name.trim(),
+      missing: missing.map((m) => m.text), missingCount: missing.length,
+    })).then(() => { S.confirm = false; S.view = "home"; render(); window.scrollTo(0, 0); toast(SHIFTS[run.type] + " fullført"); });
+  }
+
+  function reopen() {
+    const ref = S.db.doc("runs/" + S.active);
+    write(ref.path, () => ref.update({ status: "in_progress", completedAt: null, completedBy: null, missing: [], missingCount: 0 }));
+  }
+
+  function saveConfig() {
+    const clean = {};
+    for (const t of Object.keys(SHIFTS)) {
+      clean[t] = (S.draft[t] || []).filter((i) => i.text.trim()).map((i) => ({ id: i.id, text: i.text.trim(), section: (i.section || "").trim(), unit: (i.unit || "").trim() }));
+    }
+    const ref = S.db.doc("config/checklists");
+    write(ref.path, () => ref.set({ ...clean, updatedAt: new Date().toISOString() })).then(() => { S.draft = null; render(); toast("Sjekklistene er lagret"); });
+  }
+
+  app.addEventListener("click", (e) => {
+    const el = e.target.closest("[data-act]");
+    if (!el || el.disabled) return;
+    const act = el.dataset.act;
+    if (act === "view") { S.view = el.dataset.v; S.confirm = false; render(); window.scrollTo(0, 0); }
+    else if (act === "open") openShift(el.dataset.type);
+    else if (act === "tick") tick(el.dataset.id);
+    else if (act === "finish") finish(!!el.dataset.force);
+    else if (act === "cancel-confirm") { S.confirm = false; render(); }
+    else if (act === "reopen") reopen();
+    else if (act === "days") { S.reportDays = Number(el.dataset.n); render(); }
+    else if (act === "edit-type") { S.editType = el.dataset.t; render(); }
+    else if (act === "add") { S.draft[S.editType].push({ id: newId(), text: "", section: (S.draft[S.editType].slice(-1)[0] || {}).section || "", unit: "" }); render(); const ins = app.querySelectorAll('input[data-edit="text"]'); ins[ins.length - 1]?.focus(); }
+    else if (act === "rm") { S.draft[S.editType].splice(Number(el.dataset.i), 1); render(); }
+    else if (act === "mv") { const l = S.draft[S.editType], i = Number(el.dataset.i), j = i + Number(el.dataset.d); if (j >= 0 && j < l.length) { [l[i], l[j]] = [l[j], l[i]]; render(); } }
+    else if (act === "save") saveConfig();
+    else if (act === "discard") { S.draft = null; render(); }
+  });
+
+  app.addEventListener("input", (e) => {
+    const t = e.target;
+    if (t.id === "staff-name") { S.name = t.value; lsSet("taar.name", t.value.trim()); if (t.value.trim()) { S.needName = false; t.parentElement.classList.remove("need"); } }
+    else if (t.dataset.edit && S.draft) { S.draft[S.editType][Number(t.dataset.i)][t.dataset.edit] = t.value; }
+  });
+  app.addEventListener("change", (e) => {
+    const t = e.target;
+    if (t.dataset.val) setValue(t.dataset.val, t.value.trim());
+    else if (t.id === "run-comment") setComment(t.value.trim());
+  });
+
+  // ---------- boot ----------
+  render();
+  (async () => {
+    const [db, user] = await Promise.all([window.claude?.use?.("db") ?? null, window.claude?.use?.("user") ?? null]);
+    S.db = db; S.user = user; S.dbReady = true;
+    if (user) {
+      S.isOwner = await user.isOwner();
+      const can = await user.can("data.write");
+      if (can === false) S.readOnly = true;
+    }
+    if (!db) { S.configLoaded = true; render(); return; }
+    db.doc("config/checklists").onSnapshot((snap) => {
+      S.configLoaded = true;
+      S.config = snap.exists ? snap.data() : null;
+      render();
+    }, () => { S.configLoaded = true; render(); });
+    db.collection("runs").orderBy("date", "desc").limit(140).onSnapshot((snap) => {
+      S.runs = new Map(snap.docs.map((d) => [d.id, d.data()]));
+      S.runsLoaded = true;
+      render();
+    }, () => toast("Mistet forbindelsen. Last siden på nytt."));
+    render();
+  })();
+  setInterval(() => { if (S.view === "home" && !pendingRender) render(); }, 60000);
+})();
+</script>
