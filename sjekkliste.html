@@ -239,17 +239,16 @@ textarea { width: 100%; min-height: 84px; padding: 10px 12px; border: 1px solid 
     return false;
   }
 
-  // Days before the first checklist was ever started don't count as missed.
-  function firstDate() { let f = null; for (const r of S.runs.values()) if (r.date && (!f || r.date < f)) f = r.date; return f; }
+  // The bar isn't open every day: a day counts as open only when at least one checklist was started.
+  function dayOpen(date) { for (const r of S.runs.values()) if (r.date === date) return true; return false; }
 
   function shiftStatus(date, listId, daily = true) {
     const run = S.runs.get(runId(date, listId));
     const today = bizDate();
     const past = date < today;
     if (!run) {
-      const first = firstDate();
-      if (past && (!first || date < first)) return { cls: "idle", label: "Før oppstart", run: null };
-      return { cls: past && daily ? "bad" : "idle", label: past ? "Ikke gjort" : "Ikke startet", run: null };
+      if (past && daily && dayOpen(date)) return { cls: "bad", label: "Ikke gjort", run: null };
+      return { cls: "idle", label: past ? "Ikke brukt" : "Ikke startet", run: null };
     }
     const miss = missingOf(run).length;
     if (run.status === "done") return miss ? { cls: "warn", label: `Fullført, ${miss} mangler`, run } : { cls: "ok", label: "Fullført", run };
@@ -319,7 +318,7 @@ textarea { width: 100%; min-height: 84px; padding: 10px 12px; border: 1px solid 
     }).join("");
     return nameBar() + `<section class="shifts">${cards}</section>
       ${daily.length ? `<section class="section"><h3>Siste 7 dager · ${daily.map((l) => esc(l.name.toLowerCase())).join(" / ")}</h3><div class="week">${week}</div>
-      <div class="legend"><span><i class="dot ok"></i>Alt gjort</span><span><i class="dot warn"></i>Punkter mangler</span><span><i class="dot bad"></i>Ikke gjort</span></div></section>` : ""}`;
+      <div class="legend"><span><i class="dot ok"></i>Alt gjort</span><span><i class="dot warn"></i>Punkter mangler</span><span><i class="dot bad"></i>Glemt</span><span><i class="dot"></i>Stengt / ikke brukt</span></div></section>` : ""}`;
   }
 
   function runView() {
@@ -379,7 +378,7 @@ textarea { width: 100%; min-height: 84px; padding: 10px 12px; border: 1px solid 
         const daily = l ? l.daily !== false : false;
         const st = shiftStatus(d, lid, daily);
         const run = st.run;
-        if (!run && (!daily || st.label === "Før oppstart")) return "";
+        if (!run && st.cls !== "bad") return "";
         let extra = "";
         if (run) {
           const miss = missingOf(run);
@@ -409,7 +408,7 @@ textarea { width: 100%; min-height: 84px; padding: 10px 12px; border: 1px solid 
         <div class="tile"><b>${missedItems}</b><span>punkter ikke gjort</span></div>
         <div class="tile"><b>${notDone}</b><span>lister ikke gjort / ikke fullført</span></div>
       </div>
-      <p class="muted">${notes} sjekklister med kommentar i perioden. Dager baren var stengt vises som «Ikke gjort».</p>
+      <p class="muted">${notes} sjekklister med kommentar i perioden. Dager uten utfylte sjekklister regnes som stengt og vises ikke.</p>
       ${rows.trim() ? `<div class="rep">${rows}</div>` : `<div class="empty"><p>Ingen sjekklister er fylt ut ennå. Rapporten fylles opp når de ansatte begynner å krysse av.</p></div>`}`;
   }
 
@@ -433,8 +432,8 @@ textarea { width: 100%; min-height: 84px; padding: 10px 12px; border: 1px solid 
       : `<button class="btn small" data-act="ask-del">Slett denne sjekklisten</button>`;
     return `<h2>Oppsett</h2><div class="seg" role="group" aria-label="Sjekklister">${seg}</div>
       <div class="listmeta"><input type="text" id="list-name" data-list-field="name" value="${esc(l.name)}" placeholder="Navn på sjekklisten" aria-label="Navn på sjekklisten">
-        <label class="chk"><input type="checkbox" id="list-daily" data-list-field="daily" ${l.daily !== false ? "checked" : ""}> Skal gjøres hver dag</label></div>
-      <p class="muted">Endringer gjelder lister som startes etter at du har lagret. «Enhet» (f.eks. °C eller kr) gir et felt der de ansatte skriver inn en verdi. Lister som ikke skal gjøres hver dag, blir ikke markert som «Ikke gjort» når de står urørt.</p>
+        <label class="chk"><input type="checkbox" id="list-daily" data-list-field="daily" ${l.daily !== false ? "checked" : ""}> Skal gjøres hver dag baren er åpen</label></div>
+      <p class="muted">Endringer gjelder lister som startes etter at du har lagret. «Enhet» (f.eks. °C eller kr) gir et felt der de ansatte skriver inn en verdi. En dag regnes som åpen når minst én sjekkliste er brukt. Da blir lister som skal gjøres hver åpningsdag markert som «Ikke gjort» hvis de står urørt. Lister uten haken blir aldri markert.</p>
       <div class="edit"><div class="erow ehead"><span>Punkt</span><span>Seksjon</span><span>Enhet</span><span></span></div>${rows || `<p class="muted">Ingen punkter ennå.</p>`}</div>
       <div class="actions"><button class="btn" data-act="add">+ Legg til punkt</button>${del}</div>
       ${save}`;
