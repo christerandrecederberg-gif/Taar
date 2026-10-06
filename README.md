@@ -1,4 +1,4 @@
-# Taar – personlig barlager
+# Tår – personlig barlager
 
 En enkel inventar-app for baren, inspirert av Backbar. Den er laget for mobil og kan installeres på hjemskjermen. Alt lagres lokalt på enheten, og appen virker uten nett.
 
@@ -38,6 +38,7 @@ Dataene lagres i nettleserens lokale lagring på enheten. Ta backup jevnlig unde
 | --- | --- |
 | `index.html` | Skall og navigasjon |
 | `app.js` | All logikk: lagring, visninger, telling, pour cost |
-| `styles.css` | Stil (mørkt tema, følger systemets lyst/mørkt) |
+| `styles.css` | Stil etter Tårs profil (Cobalt, Navy, Linen; lyst og mørkt tema) |
+| `logo.svg`, `fonts/` | Logo og fonter (Cormorant Garamond, Spectral, Inter – SIL OFL) |
 | `sw.js` | Service worker for offline |
 | `manifest.webmanifest`, `icon*` | PWA-installasjon |

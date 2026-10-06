@@ -1,6 +1,10 @@
 // Offline-støtte: viser cachet versjon umiddelbart og henter oppdatering i bakgrunnen.
-const CACHE = 'taar-v1';
-const ASSETS = ['./', './index.html', './styles.css', './app.js', './manifest.webmanifest', './icon.svg', './icon-192.png', './icon-512.png'];
+const CACHE = 'taar-v2';
+const ASSETS = ['./', './index.html', './styles.css', './app.js', './manifest.webmanifest', './icon.svg', './icon-192.png', './icon-512.png', './logo.svg',
+  './fonts/cormorant-garamond-latin-500-normal.woff2', './fonts/cormorant-garamond-latin-600-normal.woff2',
+  './fonts/cormorant-garamond-latin-600-italic.woff2', './fonts/spectral-latin-300-italic.woff2',
+  './fonts/spectral-latin-300-normal.woff2', './fonts/inter-latin-300-normal.woff2',
+  './fonts/inter-latin-400-normal.woff2', './fonts/inter-latin-600-normal.woff2'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));

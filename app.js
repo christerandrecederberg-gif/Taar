@@ -1,10 +1,11 @@
 'use strict';
 
 /* ============================================================
-   Taar – personlig barlager
+   Tår – personlig barlager
    All data lagres lokalt i nettleseren (localStorage).
    ============================================================ */
 
+// Nøkkelen beholdes uendret slik at eksisterende data ikke forsvinner.
 const STORAGE_KEY = 'taar.data.v1';
 const CATEGORIES = [
   'Vodka', 'Gin', 'Rom', 'Whisky', 'Tequila/Mezcal', 'Cognac/Brandy', 'Likør',
@@ -155,7 +156,7 @@ function openSheet(html, onMount) {
 function closeSheet() { if (sheet.open) sheet.close(); }
 sheet.addEventListener('click', (e) => { if (e.target === sheet) closeSheet(); });
 
-function setTitle(t) { $('#title').textContent = t; document.title = `${t} · Taar`; }
+function setTitle(t) { $('#title').textContent = t; document.title = `${t} · Tår`; }
 
 function updateBadges() {
   const low = lowProducts().length;
@@ -219,7 +220,7 @@ function renderDashboard() {
   if (!state.products.length) {
     V.innerHTML = `
       <div class="card empty">
-        <h2>Velkommen til Taar 🍸</h2>
+        <div class="hero"><div class="logo" role="img" aria-label="Tår"></div><div class="tagline">Cocktails &amp; kaffe</div></div>
         <p>Legg inn produktene i baren, tell beholdningen og få varsel når noe begynner å gå tomt.</p>
         <div class="btn-row">
           <button class="btn primary" data-action="new-product">Legg til første produkt</button>
@@ -528,7 +529,7 @@ function renderCount() {
     V.innerHTML = `
       <div class="card">
         <h2>Ny telling</h2>
-        <p class="muted" style="margin-top:0">Gå gjennom hylla og registrer fulle flasker og åpne flasker i tideler.
+        <p class="lead" style="margin-top:0">Gå gjennom hylla og registrer fulle flasker og åpne flasker i tideler.
           Tallene er forhåndsutfylt med dagens beholdning, så du trenger bare å rette det som avviker.
           Du kan ta pauser underveis, og fremdriften lagres automatisk.</p>
         <button class="btn primary block" data-action="count-start" ${state.products.length ? '' : 'disabled'}>Start telling</button>
@@ -753,7 +754,7 @@ function renderDrinks() {
     ${drinks.length ? `<div class="list">${drinks.map(({ d, cost, pct }) => `
       <div class="row" data-action="edit-drink" data-id="${d.id}">
         <div class="row-main">
-          <div class="row-title">${esc(d.name)}</div>
+          <div class="row-title drink">${esc(d.name)}</div>
           <div class="row-sub">Kost ${kr(cost, 2)} · pris ${kr(d.price)} · ${esc(d.ingredients.map((i) => product(i.productId)?.name).filter(Boolean).join(', ') || 'ingen ingredienser')}</div>
         </div>
         <div class="row-end">${pctBadge(pct)}</div>
@@ -928,7 +929,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 function exportJson() {
   state.settings.lastBackup = new Date().toISOString();
   save();
-  download(`taar-backup-${today()}.json`, JSON.stringify(state, null, 2), 'application/json');
+  download(`tar-cocktails-backup-${today()}.json`, JSON.stringify(state, null, 2), 'application/json');
   toast('Backup lastet ned');
   render();
 }
@@ -947,7 +948,7 @@ function importJson(e) {
       toast('Backup gjenopprettet');
       go('#/oversikt');
     } catch (err) {
-      toast('Kunne ikke lese filen – er det en Taar-backup?');
+      toast('Kunne ikke lese filen – er det en Tår-backup?');
     }
   };
   reader.readAsText(file);
@@ -964,7 +965,7 @@ function exportCsv() {
     p.name, p.category, isBottle(p) ? 'flaske' : 'stk', isBottle(p) ? p.sizeCl : '', p.cost, p.stock,
     productValue(p), p.lowAlert ? 'ja' : 'nei', p.threshold, p.par || '', isLow(p) ? orderQty(p) : '']);
   const csv = '﻿' + [head, ...rows].map((r) => r.map(cell).join(';')).join('\r\n');
-  download(`taar-lager-${today()}.csv`, csv, 'text/csv;charset=utf-8');
+  download(`tar-cocktails-lager-${today()}.csv`, csv, 'text/csv;charset=utf-8');
 }
 
 function shoppingListText() {
