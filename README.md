@@ -8,6 +8,9 @@ En enkel inventar-app for baren, inspirert av Backbar. Den er laget for mobil og
 - **Varsler om lavt lager**: du slår på varsel for de produktene du vil følge og setter en grense. Lavt lager vises på oversikten, som merke på ikonet og som en handleliste du kan kopiere, med «bestill opp til»-nivå.
 - **Telling**: du teller fulle flasker og åpne flasker i tideler med en glidebryter. Tellingen er forhåndsutfylt med dagens beholdning, og fremdriften lagres underveis.
 - **Forbruk**: mellom to tellinger beregnes forbruket per produkt slik: forrige telling + varemottak − ny telling. Du ser det både i antall og i kroner.
+- **Leverandører**: hvert produkt kan ha en leverandør. Lavt lager og handlelisten grupperes etter leverandør, og hver gruppe kan deles for seg.
+- **Strekkodeskanning**: skann flasker med kameraet for å finne produktet, koble en strekkode til et produkt eller hoppe rett til produktet under telling. Koden kan også skrives inn for hånd.
+- **Faktisk pour cost**: legg inn salget for perioden mellom to tellinger. Appen viser faktisk pour cost (forbruk ÷ salg eks. mva) mot teoretisk (oppskrifter) og avviket per produkt, altså svinn og overpouring.
 - **Pour cost**: drinker med oppskrift (cl per ingrediens) og utsalgspris. Appen viser varekost, pour cost i %, fortjeneste per drink og hvilken pris som gir målet ditt. Mva-sats og mål stiller du inn selv.
 - **Backup**: eksport og import av JSON, og eksport av lageret til CSV for Excel.
 
@@ -39,6 +42,7 @@ Dataene lagres i nettleserens lokale lagring på enheten. Ta backup jevnlig unde
 | `index.html` | Skall og navigasjon |
 | `app.js` | All logikk: lagring, visninger, telling, pour cost |
 | `styles.css` | Stil etter Tårs profil (Cobalt, Navy, Linen; alltid lyst tema) |
+| `vendor/zxing.min.js` | Strekkodeleser (ZXing, Apache 2.0), lastes først når du skanner |
 | `logo.svg`, `fonts/` | Logo og fonter (Cormorant Garamond, Spectral, Inter – SIL OFL) |
 | `sw.js` | Service worker for offline |
 | `manifest.webmanifest`, `icon*` | PWA-installasjon |

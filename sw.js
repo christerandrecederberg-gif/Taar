@@ -1,6 +1,6 @@
 // Offline-støtte: viser cachet versjon umiddelbart og henter oppdatering i bakgrunnen.
-const CACHE = 'taar-v3';
-const ASSETS = ['./', './index.html', './styles.css', './app.js', './manifest.webmanifest', './icon.svg', './icon-192.png', './icon-512.png', './logo.svg',
+const CACHE = 'taar-v4';
+const ASSETS = ['./', './index.html', './styles.css', './app.js', './manifest.webmanifest', './icon.svg', './icon-192.png', './icon-512.png', './logo.svg', './vendor/zxing.min.js',
   './fonts/cormorant-garamond-latin-500-normal.woff2', './fonts/cormorant-garamond-latin-600-normal.woff2',
   './fonts/cormorant-garamond-latin-600-italic.woff2', './fonts/spectral-latin-300-italic.woff2',
   './fonts/spectral-latin-300-normal.woff2', './fonts/inter-latin-300-normal.woff2',

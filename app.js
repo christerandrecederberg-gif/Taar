@@ -156,6 +156,119 @@ function openSheet(html, onMount) {
 function closeSheet() { if (sheet.open) sheet.close(); }
 sheet.addEventListener('click', (e) => { if (e.target === sheet) closeSheet(); });
 
+/* ---------- Strekkodeskanner ----------
+   iOS Safari har ikke BarcodeDetector, så vi bruker ZXing (lastes først ved behov). */
+const SCAN_ICON = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h2v14H3zm4 0h1v14H7zm3 0h2v14h-2zm4 0h1v14h-1zm3 0h1v14h-1zm2 0h2v14h-2z"/></svg>';
+let zxingLoading;
+function loadZXing() {
+  if (window.ZXing) return Promise.resolve(window.ZXing);
+  zxingLoading = zxingLoading || new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'vendor/zxing.min.js';
+    s.onload = () => resolve(window.ZXing);
+    s.onerror = () => { zxingLoading = null; reject(new Error('Kunne ikke laste skanneren')); };
+    document.head.appendChild(s);
+  });
+  return zxingLoading;
+}
+
+// Åpner kamera i arket og gir tilbake koden (eller null hvis avbrutt). Arket står åpent etterpå.
+function scanBarcode(title = 'Skann strekkode') {
+  return new Promise((resolve) => {
+    let reader = null;
+    let finished = false;
+    const finish = (code) => {
+      if (finished) return;
+      finished = true;
+      sheet.removeEventListener('close', onClose);
+      try { reader?.reset(); } catch (e) { /* ignorer */ }
+      resolve(code);
+    };
+    const onClose = () => finish(null);
+    openSheet(`
+      <h2>${esc(title)}</h2>
+      <div class="scanner"><video id="scan-video" playsinline muted autoplay></video><div class="scan-line"></div></div>
+      <p class="hint" id="scan-status" style="margin:8px 0 12px">Starter kamera …</p>
+      <form class="input-btn" id="scan-manual">
+        <input type="text" name="code" inputmode="numeric" placeholder="… eller skriv inn koden" autocomplete="off" aria-label="Strekkode">
+        <button class="btn">OK</button>
+      </form>`, async (root) => {
+      sheet.addEventListener('close', onClose);
+      $('#scan-manual', root).addEventListener('submit', (e) => {
+        e.preventDefault();
+        const code = e.target.elements.code.value.replace(/\s+/g, '');
+        if (code) finish(code);
+      });
+      const status = $('#scan-status', root);
+      try {
+        const ZX = await loadZXing();
+        if (finished) return;
+        const hints = new Map();
+        hints.set(ZX.DecodeHintType.POSSIBLE_FORMATS, [ZX.BarcodeFormat.EAN_13, ZX.BarcodeFormat.EAN_8,
+          ZX.BarcodeFormat.UPC_A, ZX.BarcodeFormat.UPC_E, ZX.BarcodeFormat.CODE_128, ZX.BarcodeFormat.CODE_39, ZX.BarcodeFormat.QR_CODE]);
+        reader = new ZX.BrowserMultiFormatReader(hints, 250);
+        await reader.decodeFromConstraints({ audio: false, video: { facingMode: 'environment' } }, $('#scan-video', root), (result) => {
+          if (result && !finished) {
+            navigator.vibrate?.(60);
+            finish(result.getText());
+          }
+        });
+        if (!finished) status.textContent = 'Hold strekkoden inne i rammen.';
+      } catch (err) {
+        if (finished) return;
+        status.textContent = err?.name === 'NotAllowedError'
+          ? 'Ingen tilgang til kameraet. Tillat kamera for appen i Innstillinger, eller skriv inn koden.'
+          : 'Fant ikke noe kamera. Skriv inn koden i stedet.';
+      }
+    });
+  });
+}
+
+// Skann i Lager: åpne produktet, eller tilby å opprette/koble når koden er ukjent.
+async function scanToProduct() {
+  const code = await scanBarcode();
+  if (!code) return;
+  const p = productByBarcode(code);
+  if (p) { openProduct(p.id); return; }
+  openSheet(`
+    <h2>Ukjent strekkode</h2>
+    <p class="lead" style="margin-top:0">Koden <b class="num">${esc(code)}</b> er ikke koblet til noe produkt enda.</p>
+    <button class="btn primary block" data-action="new-product-code" data-code="${esc(code)}">Nytt produkt med denne koden</button>
+    ${state.products.length ? `
+      <h3>Eller koble til eksisterende</h3>
+      <form data-form="link-barcode" data-code="${esc(code)}" class="input-btn">
+        <select name="productId" required>${productSelect('')}</select>
+        <button class="btn">Koble</button>
+      </form>` : ''}`);
+}
+
+// Skann under telling: hopp til produktet i listen.
+async function scanInCount() {
+  const code = await scanBarcode('Skann for å finne produkt');
+  if (!code) return;
+  const p = productByBarcode(code);
+  closeSheet();
+  if (!p) { toast('Ukjent strekkode – koble den til et produkt under Lager'); return; }
+  countFilter.q = '';
+  countFilter.cat = '';
+  if ($('#cnt-q')) { $('#cnt-q').value = ''; $('#cnt-cat').value = ''; }
+  renderCountList();
+  const row = $(`.count-row[data-id="${p.id}"]`);
+  if (row) {
+    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    row.classList.remove('flash');
+    void row.offsetWidth;
+    row.classList.add('flash');
+  }
+}
+
+async function scanIntoForm(form) {
+  const draft = readProductForm(form);
+  const id = form.dataset.id;
+  const code = await scanBarcode();
+  productForm(id ? product(id) : null, code ? { ...draft, barcode: code } : draft);
+}
+
 function setTitle(t) { $('#title').textContent = t; document.title = `${t} · Tår`; }
 
 function updateBadges() {
@@ -186,7 +299,8 @@ function groupByCategory(list) {
 function matchesQuery(p, q) {
   if (!q) return true;
   q = q.toLowerCase();
-  return p.name.toLowerCase().includes(q) || p.category.toLowerCase().includes(q);
+  return p.name.toLowerCase().includes(q) || p.category.toLowerCase().includes(q) ||
+    (p.supplier || '').toLowerCase().includes(q) || (p.barcode || '') === q;
 }
 
 /* ---------- Ruting ---------- */
@@ -235,6 +349,15 @@ function renderDashboard() {
   const drinks = state.drinks.map((d) => pourPct(drinkCost(d), d.price)).filter((x) => x != null);
   const avgPct = drinks.length ? sum(drinks, (x) => x) / drinks.length : null;
   const overTarget = drinks.filter((x) => x > state.settings.targetPourCost).length;
+  const latestActual = (() => {
+    for (let i = state.counts.length - 1; i > 0; i--) {
+      const c = state.counts[i];
+      if (!c.sales) continue;
+      const rows = periodUsage(c, state.counts[i - 1]);
+      return { c, a: pourAnalysis(c, rows, sum(rows, (r) => r.usedValue)) };
+    }
+    return null;
+  })();
   const daysSinceBackup = state.settings.lastBackup ? (Date.now() - new Date(state.settings.lastBackup)) / 864e5 : Infinity;
 
   V.innerHTML = `
@@ -256,14 +379,20 @@ function renderDashboard() {
         <h2>Lavt lager</h2>
         ${low.length ? `<button class="btn small" data-action="copy-shopping">Kopier handleliste</button>` : ''}
       </div>
-      ${low.length ? `<div class="list" style="margin:0">${low.map((p) => `
+      ${low.length ? lowBySupplier().map(([sup, ps], i, all) => `
+        ${all.length > 1 || sup !== NO_SUPPLIER ? `
+          <div class="supplier-head">
+            <div class="group-label" style="margin:${i ? 14 : 2}px 4px 6px">${esc(sup)}</div>
+            <button class="linkbtn small" data-action="copy-shopping" data-supplier="${esc(sup)}">Del</button>
+          </div>` : ''}
+        <div class="list" style="margin:0">${ps.map((p) => `
         <div class="row" data-action="open-product" data-id="${p.id}">
           <div class="row-main">
             <div class="row-title">${esc(p.name)}</div>
             <div class="row-sub">Igjen: ${qtyLabel(p, p.stock)} · varsel ved ${qtyLabel(p, p.threshold)}</div>
           </div>
           <div class="row-end"><span class="tag low">Bestill ${orderQty(p)}</span></div>
-        </div>`).join('')}</div>`
+        </div>`).join('')}</div>`).join('')
       : `<p class="muted" style="margin:0">Ingen varsler. ${state.products.some((p) => p.lowAlert) ? 'Alt er over grensen 👍' : 'Slå på «Varsle ved lavt lager» på produktene du vil følge med på.'}</p>`}
     </div>
 
@@ -282,6 +411,9 @@ function renderDashboard() {
         <p style="margin:0">Snitt ${pctBadge(avgPct)} &nbsp;mål ${fmtNum(state.settings.targetPourCost)} %</p>
         <p class="muted small" style="margin:.4rem 0 0">${overTarget ? `${overTarget} av ${drinks.length} drinker er over målet.` : `Alle ${drinks.length} drinker er innenfor målet.`}</p>`
       : `<p class="muted" style="margin:0">Legg inn drinker med oppskrift og pris for å se pour cost.</p>`}
+      ${latestActual ? `
+        <p style="margin:.6rem 0 0">Faktisk ${pctBadge(latestActual.a.actualPct)} &nbsp;<span class="muted small">perioden til
+          <a href="#/historikk/${latestActual.c.id}">${fmtDate(latestActual.c.date)}</a></span></p>` : ''}
     </div>
 
     ${daysSinceBackup > 14 ? `
@@ -310,6 +442,7 @@ function renderInventory() {
       <input type="search" id="inv-q" placeholder="Søk produkt…" value="${esc(invFilter.q)}" autocomplete="off">
       <select id="inv-cat">${categoryOptions(invFilter.cat, true)}</select>
       <label class="chip"><input type="checkbox" id="inv-low" ${invFilter.low ? 'checked' : ''}> Kun lavt</label>
+      <button class="chip" data-action="scan-product">${SCAN_ICON} Skann</button>
     </div>
     <div id="inv-summary" class="muted small" style="margin:0 4px 4px"></div>
     <div id="inv-list"></div>
@@ -366,7 +499,7 @@ function openProduct(id) {
   const step = isBottle(p) ? '0.1' : '1';
   openSheet(`
     <h2>${esc(p.name)}</h2>
-    <div class="muted small">${esc(p.category)} · ${isBottle(p) ? `${fmtNum(p.sizeCl)} cl flaske` : 'per stk'}</div>
+    <div class="muted small">${[esc(p.category), isBottle(p) ? `${fmtNum(p.sizeCl)} cl flaske` : 'per stk', esc(p.supplier)].filter(Boolean).join(' · ')}</div>
     <div class="big-stock" style="margin-top:10px">${qtyLabel(p, p.stock)}
       ${isLow(p) ? '<span class="tag low" style="font-size:.8rem">Lavt lager</span>' : ''}</div>
 
@@ -401,41 +534,58 @@ function openProduct(id) {
     </div>`);
 }
 
-function productForm(p) {
+const suppliers = () => [...new Set(state.products.map((p) => p.supplier).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'nb'));
+const productByBarcode = (code) => state.products.find((p) => p.barcode && p.barcode === code);
+
+// p = eksisterende produkt (eller null for nytt), draft = verdier som overstyrer (f.eks. etter skanning)
+function productForm(p, draft = {}) {
   const isNew = !p;
-  p = p || { name: '', category: 'Gin', unit: 'flaske', sizeCl: 70, cost: '', stock: 0, lowAlert: true, threshold: 1, par: 3, notes: '' };
+  const v = { name: '', category: 'Gin', unit: 'flaske', sizeCl: 70, cost: '', stock: 0, lowAlert: true, threshold: 1, par: 3,
+    supplier: '', barcode: '', notes: '', ...(p || {}), ...draft };
+  const unit = v.unit === 'stk' ? 'stk' : 'fl';
   openSheet(`
     <h2>${isNew ? 'Nytt produkt' : 'Rediger produkt'}</h2>
     <form data-form="product" data-id="${isNew ? '' : p.id}">
       <label class="field"><span>Navn</span>
-        <input type="text" name="name" value="${esc(p.name)}" required placeholder="F.eks. Tanqueray London Dry"></label>
+        <input type="text" name="name" value="${esc(v.name)}" required placeholder="F.eks. Tanqueray London Dry"></label>
       <div class="field-row">
-        <label class="field"><span>Kategori</span><select name="category">${categoryOptions(p.category)}</select></label>
+        <label class="field"><span>Kategori</span><select name="category">${categoryOptions(v.category)}</select></label>
         <label class="field"><span>Enhet</span>
           <select name="unit">
-            <option value="flaske" ${p.unit !== 'stk' ? 'selected' : ''}>Flaske</option>
-            <option value="stk" ${p.unit === 'stk' ? 'selected' : ''}>Stk (boks, kartong …)</option>
+            <option value="flaske" ${v.unit !== 'stk' ? 'selected' : ''}>Flaske</option>
+            <option value="stk" ${v.unit === 'stk' ? 'selected' : ''}>Stk (boks, kartong …)</option>
           </select></label>
       </div>
       <div class="field-row">
         <label class="field bottle-only"><span>Flaskestørrelse</span>
-          <div class="input-suffix"><input type="number" name="sizeCl" inputmode="decimal" min="1" step="any" value="${p.sizeCl}"><em>cl</em></div></label>
-        <label class="field"><span class="cost-label">Innkjøpspris per ${p.unit === 'stk' ? 'stk' : 'flaske'}</span>
-          <div class="input-suffix"><input type="number" name="cost" inputmode="decimal" min="0" step="any" value="${p.cost}" placeholder="0"><em>kr</em></div></label>
+          <div class="input-suffix"><input type="number" name="sizeCl" inputmode="decimal" min="1" step="any" value="${v.sizeCl}"><em>cl</em></div></label>
+        <label class="field"><span class="cost-label">Innkjøpspris per ${v.unit === 'stk' ? 'stk' : 'flaske'}</span>
+          <div class="input-suffix"><input type="number" name="cost" inputmode="decimal" min="0" step="any" value="${v.cost}" placeholder="0"><em>kr</em></div></label>
       </div>
       <label class="field"><span>Beholdning nå</span>
-        <div class="input-suffix"><input type="number" name="stock" inputmode="decimal" min="0" step="any" value="${p.stock}"><em class="unit-suffix">${p.unit === 'stk' ? 'stk' : 'fl'}</em></div></label>
+        <div class="input-suffix"><input type="number" name="stock" inputmode="decimal" min="0" step="any" value="${v.stock}"><em class="unit-suffix">${unit}</em></div></label>
       <p class="hint bottle-only">Bruk desimaler for åpne flasker, f.eks. 2,4 = to fulle og en på 40 %.</p>
 
-      <label class="check"><input type="checkbox" name="lowAlert" ${p.lowAlert ? 'checked' : ''}> Varsle ved lavt lager</label>
+      <label class="check"><input type="checkbox" name="lowAlert" ${v.lowAlert ? 'checked' : ''}> Varsle ved lavt lager</label>
       <div class="field-row alert-fields">
         <label class="field"><span>Varsle når ≤</span>
-          <div class="input-suffix"><input type="number" name="threshold" inputmode="decimal" min="0" step="any" value="${p.threshold}"><em class="unit-suffix">${p.unit === 'stk' ? 'stk' : 'fl'}</em></div></label>
+          <div class="input-suffix"><input type="number" name="threshold" inputmode="decimal" min="0" step="any" value="${v.threshold}"><em class="unit-suffix">${unit}</em></div></label>
         <label class="field"><span>Bestill opp til</span>
-          <div class="input-suffix"><input type="number" name="par" inputmode="decimal" min="0" step="any" value="${p.par || ''}" placeholder="valgfritt"><em class="unit-suffix">${p.unit === 'stk' ? 'stk' : 'fl'}</em></div></label>
+          <div class="input-suffix"><input type="number" name="par" inputmode="decimal" min="0" step="any" value="${v.par || ''}" placeholder="valgfritt"><em class="unit-suffix">${unit}</em></div></label>
       </div>
 
-      <label class="field"><span>Notater</span><textarea name="notes" rows="2" placeholder="Leverandør, hylleplass …">${esc(p.notes)}</textarea></label>
+      <label class="field"><span>Leverandør</span>
+        <input type="text" name="supplier" value="${esc(v.supplier)}" list="supplier-list" placeholder="Hvem du bestiller fra" autocomplete="off">
+        <datalist id="supplier-list">${suppliers().map((s) => `<option value="${esc(s)}">`).join('')}</datalist></label>
+
+      <div class="field"><span class="muted small">Strekkode</span>
+        <div class="input-btn">
+          <input type="text" name="barcode" value="${esc(v.barcode)}" inputmode="numeric" placeholder="Ingen" autocomplete="off" aria-label="Strekkode">
+          <button type="button" class="btn" data-action="scan-into-form">${SCAN_ICON} Skann</button>
+        </div>
+      </div>
+
+      <label class="field"><span>Notater</span><textarea name="notes" rows="2" placeholder="Hylleplass, smak …">${esc(v.notes)}</textarea></label>
 
       <div class="btn-row">
         ${isNew ? '' : `<button type="button" class="btn danger" data-action="delete-product" data-id="${p.id}">Slett</button>`}
@@ -452,16 +602,14 @@ function productForm(p) {
     };
     form.addEventListener('change', sync);
     sync();
-    if (isNew) form.elements.name.focus();
+    if (isNew && !v.name) form.elements.name.focus();
   });
 }
 
-function saveProduct(form) {
+function readProductForm(form) {
   const f = form.elements;
-  const name = f.name.value.trim();
-  if (!name) return toast('Produktet må ha et navn');
-  const data = {
-    name,
+  return {
+    name: f.name.value.trim(),
     category: f.category.value,
     unit: f.unit.value,
     sizeCl: Math.max(1, num(f.sizeCl.value) || 70),
@@ -469,10 +617,19 @@ function saveProduct(form) {
     lowAlert: f.lowAlert.checked,
     threshold: Math.max(0, num(f.threshold.value)),
     par: Math.max(0, num(f.par.value)),
+    supplier: f.supplier.value.trim(),
+    barcode: f.barcode.value.replace(/\s+/g, ''),
     notes: f.notes.value.trim(),
+    stock: Math.max(0, round1(num(f.stock.value))),
   };
-  const stock = Math.max(0, round1(num(f.stock.value)));
+}
+
+function saveProduct(form) {
+  const { stock, ...data } = readProductForm(form);
+  if (!data.name) return toast('Produktet må ha et navn');
   const id = form.dataset.id;
+  const clash = data.barcode && productByBarcode(data.barcode);
+  if (clash && clash.id !== id) return toast(`Strekkoden er allerede brukt på ${clash.name}`);
   let p;
   if (id) {
     p = product(id);
@@ -487,7 +644,7 @@ function saveProduct(form) {
     p = { id: uid(), ...data, stock, createdAt: new Date().toISOString() };
     state.products.push(p);
     addLog(p, 'start', stock);
-    toast(`${name} lagt til`);
+    toast(`${data.name} lagt til`);
   }
   save();
   closeSheet();
@@ -546,6 +703,7 @@ function renderCount() {
     <div class="toolbar">
       <input type="search" id="cnt-q" placeholder="Søk…" value="${esc(countFilter.q)}" autocomplete="off">
       <select id="cnt-cat">${categoryOptions(countFilter.cat, true)}</select>
+      <button class="chip" data-action="scan-count">${SCAN_ICON} Skann</button>
     </div>
     <div id="cnt-list"></div>
     <div class="count-footer">
@@ -679,13 +837,9 @@ function renderHistory(id) {
   const prev = state.counts[idx - 1];
 
   let usageHtml = '<p class="muted" style="margin:0">Forbruk beregnes fra og med neste telling (trenger to tellinger å sammenligne).</p>';
+  let pourHtml = '';
   if (prev) {
-    const prevMap = new Map(prev.items.map((i) => [i.productId, i]));
-    const rows = c.items.filter((i) => prevMap.has(i.productId)).map((i) => {
-      const received = sum(state.log.filter((l) => l.productId === i.productId && l.type === 'mottak' && l.date > prev.date && l.date <= c.date), (l) => l.delta);
-      const used = round1(prevMap.get(i.productId).qty + received - i.qty);
-      return { ...i, received, used, usedValue: used * i.cost };
-    }).sort((a, b) => b.usedValue - a.usedValue);
+    const rows = periodUsage(c, prev).sort((a, b) => b.usedValue - a.usedValue);
     const days = Math.max(1, Math.round((new Date(c.date) - new Date(prev.date)) / 864e5));
     const totalUsed = sum(rows, (r) => r.usedValue);
     const unitOf = (r) => (r.unit === 'stk' ? 'stk' : 'fl');
@@ -700,6 +854,7 @@ function renderHistory(id) {
           <td class="n">${kr(r.usedValue)}</td></tr>`).join('') || '<tr><td colspan="4" class="muted">Ingen endringer.</td></tr>'}
         </tbody></table></div>
       ${rows.some((r) => r.used < 0) ? '<p class="hint" style="margin-top:8px">Negativt forbruk betyr at du har mer enn forventet – sjekk om et varemottak mangler.</p>' : ''}`;
+    pourHtml = actualPourCostCard(c, rows, totalUsed);
   }
 
   V.innerHTML = `
@@ -708,6 +863,7 @@ function renderHistory(id) {
       <div class="stat"><div class="label">Produkter</div><div class="value">${c.items.length}</div></div>
       <div class="stat"><div class="label">Endring</div><div class="value">${prev ? (c.value >= prev.value ? '+' : '') + kr(c.value - prev.value) : '–'}</div></div>
     </div>
+    ${pourHtml}
     <div class="card"><h2>Forbruk</h2>${usageHtml}</div>
     <div class="card">
       <h2>Beholdning ved telling</h2>
@@ -722,6 +878,132 @@ function renderHistory(id) {
       <a class="btn" href="#/historikk">Alle tellinger</a>
       <button class="btn danger" data-action="delete-count" data-id="${c.id}">Slett telling</button>
     </div>`;
+}
+
+// Forbruk per produkt mellom to tellinger: forrige telling + varemottak − denne tellingen.
+function periodUsage(c, prev) {
+  const prevMap = new Map(prev.items.map((i) => [i.productId, i]));
+  return c.items.filter((i) => prevMap.has(i.productId)).map((i) => {
+    const received = sum(state.log.filter((l) => l.productId === i.productId && l.type === 'mottak' && l.date > prev.date && l.date <= c.date), (l) => l.delta);
+    const used = round1(prevMap.get(i.productId).qty + received - i.qty);
+    return { ...i, received, used, usedValue: used * i.cost };
+  });
+}
+
+// Faktisk pour cost = forbruk fra tellingene ÷ salg eks. mva. Teoretisk = oppskriftskost for solgte drinker ÷ salg.
+function pourAnalysis(c, rows, totalUsed) {
+  const s = c.sales;
+  if (!s) return null;
+  const sold = Object.entries(s.drinks || {}).map(([id, qty]) => ({ d: state.drinks.find((x) => x.id === id), qty }))
+    .filter((x) => x.d && x.qty > 0);
+  const drinkRevenueEx = sum(sold, (x) => priceExVat(x.d.price) * x.qty);
+  const revenueEx = s.revenue > 0 ? priceExVat(s.revenue) : drinkRevenueEx;
+  const theoCost = sum(sold, (x) => drinkCost(x.d) * x.qty);
+
+  // Forventet forbruk per produkt ut fra oppskriftene, i flasker/stk
+  const expected = new Map();
+  for (const { d, qty } of sold) {
+    for (const ing of d.ingredients) {
+      const p = product(ing.productId);
+      if (!p) continue;
+      const units = isBottle(p) ? (ing.amount / p.sizeCl) * qty : ing.amount * qty;
+      expected.set(p.id, (expected.get(p.id) || 0) + units);
+    }
+  }
+  const variance = rows.map((r) => {
+    const exp = expected.get(r.productId) || 0;
+    const diff = r.used - exp;
+    return { ...r, expected: exp, diff, diffValue: diff * r.cost };
+  }).filter((r) => r.expected > 0 || r.used !== 0)
+    .sort((a, b) => Math.abs(b.diffValue) - Math.abs(a.diffValue));
+
+  return {
+    revenueEx,
+    soldCount: sum(sold, (x) => x.qty),
+    actualPct: revenueEx > 0 ? (totalUsed / revenueEx) * 100 : null,
+    theoPct: drinkRevenueEx > 0 ? (theoCost / drinkRevenueEx) * 100 : null,
+    theoCost,
+    variance,
+  };
+}
+
+function actualPourCostCard(c, rows, totalUsed) {
+  const a = pourAnalysis(c, rows, totalUsed);
+  if (!a) {
+    return `
+      <div class="card">
+        <h2>Faktisk pour cost</h2>
+        <p class="lead" style="margin-top:0">Legg inn salget for perioden (fra kassasystemet), så sammenligner appen det med forbruket fra tellingene.
+          Da ser du den faktiske pour costen og hvor mye som forsvinner i svinn og overpouring.</p>
+        <button class="btn primary block" data-action="edit-sales" data-id="${c.id}">Legg inn salg</button>
+      </div>`;
+  }
+  const lossValue = sum(a.variance, (r) => r.diffValue);
+  const fmtQ = (r, q) => `${fmtNum(q, 1)} ${r.unit === 'stk' ? 'stk' : 'fl'}`;
+  return `
+    <div class="card">
+      <div class="card-head"><h2>Faktisk pour cost</h2>
+        <button class="btn small" data-action="edit-sales" data-id="${c.id}">Endre salg</button></div>
+      <div class="kv" style="margin-top:0">
+        <div><span>Salg eks. mva</span><b>${kr(a.revenueEx)}</b></div>
+        <div><span>Forbruk</span><b>${kr(totalUsed)}</b></div>
+        <div><span>Faktisk</span>${pctBadge(a.actualPct)}</div>
+        <div><span>Teoretisk</span>${pctBadge(a.theoPct)}</div>
+      </div>
+      ${a.soldCount ? `
+        <p style="margin:0 0 .4rem">${fmtNum(a.soldCount)} drinker solgt. Oppskriftene tilsier ${kr(a.theoCost)} i varekost,
+          tellingene viser ${kr(totalUsed)}: <b style="color:var(${lossValue > 0 ? '--bad' : '--ok'})">${lossValue > 0 ? '+' : ''}${kr(lossValue)}</b> i avvik.</p>
+        <h3>Avvik per produkt</h3>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Produkt</th><th class="n">Forventet</th><th class="n">Brukt</th><th class="n">Avvik</th></tr></thead>
+          <tbody>${a.variance.map((r) => `
+            <tr><td>${esc(r.name)}</td><td class="n">${fmtQ(r, r.expected)}</td><td class="n">${fmtQ(r, r.used)}</td>
+            <td class="n" style="color:var(${r.diffValue > 0.5 ? '--bad' : r.diffValue < -0.5 ? '--ok' : '--muted'})">${r.diffValue > 0 ? '+' : ''}${kr(r.diffValue)}</td></tr>`).join('')}
+          </tbody></table></div>
+        <p class="hint" style="margin-top:8px">Positivt avvik betyr at mer er brukt enn oppskriftene tilsier: svinn, overpouring,
+          spanderte drinker eller salg som ikke er lagt inn. Negativt avvik kan bety for lite pour eller manglende varemottak.</p>`
+      : '<p class="hint" style="margin:0">Legg inn antall solgte per drink for å se avvik per produkt.</p>'}
+    </div>`;
+}
+
+function salesForm(c) {
+  const s = c.sales || { revenue: '', drinks: {} };
+  const prevDate = state.counts[state.counts.indexOf(c) - 1]?.date;
+  openSheet(`
+    <h2>Salg i perioden</h2>
+    <p class="lead" style="margin-top:0">${prevDate ? `${fmtDate(prevDate)} – ${fmtDate(c.date)}. ` : ''}Hent tallene fra kassasystemet.</p>
+    <form data-form="sales" data-id="${c.id}">
+      <label class="field"><span>Totalt drikkesalg ${state.settings.pricesIncludeVat ? 'inkl.' : 'eks.'} mva</span>
+        <div class="input-suffix"><input type="number" name="revenue" inputmode="decimal" min="0" step="any" value="${s.revenue || ''}" placeholder="Valgfritt"><em>kr</em></div></label>
+      <p class="hint">Ta med alt salg som bruker varene i baren, men ikke kaffe og mat. Står feltet tomt, brukes summen av drinkene under.</p>
+      ${state.drinks.length ? `
+        <h3>Antall solgt per drink</h3>
+        <div class="list">${state.drinks.slice().sort(sortByName).map((d) => `
+          <label class="row" style="cursor:default">
+            <div class="row-main"><div class="row-title drink">${esc(d.name)}</div><div class="row-sub">${kr(d.price)}</div></div>
+            <input type="number" name="d_${d.id}" inputmode="numeric" min="0" step="1" value="${s.drinks?.[d.id] || ''}" placeholder="0" style="width:90px;text-align:right">
+          </label>`).join('')}</div>` : '<p class="hint">Legg inn drinker under Pour cost for å se avvik per produkt.</p>'}
+      <div class="btn-row">
+        ${c.sales ? `<button type="button" class="btn danger" data-action="clear-sales" data-id="${c.id}">Fjern salg</button>` : ''}
+        <button class="btn primary">Lagre</button>
+      </div>
+    </form>`);
+}
+
+function saveSales(form) {
+  const c = state.counts.find((x) => x.id === form.dataset.id);
+  const drinks = {};
+  for (const d of state.drinks) {
+    const q = Math.max(0, Math.round(num(form.elements[`d_${d.id}`]?.value)));
+    if (q) drinks[d.id] = q;
+  }
+  const revenue = Math.max(0, num(form.elements.revenue.value));
+  if (!revenue && !Object.keys(drinks).length) return toast('Legg inn salg eller antall drinker');
+  c.sales = { revenue, drinks };
+  save();
+  closeSheet();
+  toast('Salg lagret');
+  render();
 }
 
 function renderLog() {
@@ -960,37 +1242,53 @@ function exportCsv() {
     const s = typeof v === 'number' ? String(round2(v)).replace('.', ',') : String(v ?? '');
     return /[;"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
-  const head = ['Navn', 'Kategori', 'Enhet', 'Størrelse (cl)', 'Innkjøpspris', 'Beholdning', 'Verdi', 'Varsel på', 'Varsle ved', 'Bestill opp til', 'Bestill antall'];
+  const head = ['Navn', 'Kategori', 'Leverandør', 'Strekkode', 'Enhet', 'Størrelse (cl)', 'Innkjøpspris', 'Beholdning', 'Verdi', 'Varsel på', 'Varsle ved', 'Bestill opp til', 'Bestill antall'];
   const rows = state.products.slice().sort(sortByName).map((p) => [
-    p.name, p.category, isBottle(p) ? 'flaske' : 'stk', isBottle(p) ? p.sizeCl : '', p.cost, p.stock,
+    p.name, p.category, p.supplier || '', p.barcode ? `\u2060${p.barcode}` : '', isBottle(p) ? 'flaske' : 'stk', isBottle(p) ? p.sizeCl : '', p.cost, p.stock,
     productValue(p), p.lowAlert ? 'ja' : 'nei', p.threshold, p.par || '', isLow(p) ? orderQty(p) : '']);
   const csv = '﻿' + [head, ...rows].map((r) => r.map(cell).join(';')).join('\r\n');
   download(`tar-cocktails-lager-${today()}.csv`, csv, 'text/csv;charset=utf-8');
 }
 
-function shoppingListText() {
-  return `Handleliste ${fmtDate(new Date().toISOString())}\n` + lowProducts().sort(sortByName)
-    .map((p) => `• ${p.name}: ${orderQty(p)} ${isBottle(p) ? 'fl' : 'stk'} (har ${qtyLabel(p, p.stock)})`).join('\n');
+const NO_SUPPLIER = 'Uten leverandør';
+function lowBySupplier() {
+  const groups = new Map();
+  for (const p of lowProducts().sort(sortByName)) {
+    const key = p.supplier || NO_SUPPLIER;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(p);
+  }
+  return [...groups].sort(([a], [b]) => (a === NO_SUPPLIER) - (b === NO_SUPPLIER) || a.localeCompare(b, 'nb'));
+}
+
+function shoppingListText(onlySupplier) {
+  const groups = lowBySupplier().filter(([sup]) => !onlySupplier || sup === onlySupplier);
+  const line = (p) => `• ${p.name}: ${orderQty(p)} ${isBottle(p) ? 'fl' : 'stk'} (har ${qtyLabel(p, p.stock)})`;
+  const title = `Bestilling${onlySupplier && onlySupplier !== NO_SUPPLIER ? ` – ${onlySupplier}` : ''} ${fmtDate(new Date().toISOString())}`;
+  if (onlySupplier || (groups.length === 1 && groups[0][0] === NO_SUPPLIER)) {
+    return `${title}\n${groups.flatMap(([, ps]) => ps.map(line)).join('\n')}`;
+  }
+  return `${title}\n` + groups.map(([sup, ps]) => `\n${sup.toUpperCase()}\n${ps.map(line).join('\n')}`).join('\n');
 }
 
 function loadDemo() {
-  const P = (name, category, sizeCl, cost, stock, threshold, par, unit = 'flaske') =>
-    ({ id: uid(), name, category, unit, sizeCl, cost, stock, lowAlert: true, threshold, par, notes: '', createdAt: new Date().toISOString() });
+  const P = (name, category, sizeCl, cost, stock, threshold, par, unit = 'flaske', supplier = 'Grossist A') =>
+    ({ id: uid(), name, category, unit, sizeCl, cost, stock, lowAlert: true, threshold, par, supplier, barcode: '', notes: '', createdAt: new Date().toISOString() });
   const prods = [
     P('Tanqueray London Dry', 'Gin', 70, 329, 3.4, 2, 4),
-    P('Hendrick\'s', 'Gin', 70, 449, 1.2, 1, 2),
+    P('Hendrick\'s', 'Gin', 70, 449, 1.2, 1, 2, 'flaske', 'Grossist B'),
     P('Absolut Vodka', 'Vodka', 70, 299, 4.0, 2, 5),
-    P('Havana Club 3', 'Rom', 70, 289, 0.6, 1, 3),
+    P('Havana Club 3', 'Rom', 70, 289, 0.6, 1, 3, 'flaske', 'Grossist B'),
     P('Campari', 'Bitter/Amaro', 70, 279, 2.5, 1, 3),
     P('Martini Rosso', 'Vermut/Aperitiff', 75, 139, 1.8, 1, 3),
     P('Aperol', 'Bitter/Amaro', 70, 229, 0.3, 1, 3),
     P('Jameson', 'Whisky', 70, 359, 2.0, 1, 3),
-    P('Olmeca Altos Plata', 'Tequila/Mezcal', 70, 399, 1.0, 1, 2),
+    P('Olmeca Altos Plata', 'Tequila/Mezcal', 70, 399, 1.0, 1, 2, 'flaske', 'Grossist B'),
     P('Cointreau', 'Likør', 70, 389, 1.5, 1, 2),
     P('Prosecco', 'Musserende', 75, 109, 6, 4, 12),
-    P('Sukkersirup', 'Sirup', 100, 49, 2.3, 1, 3),
-    P('Fever-Tree Tonic', 'Mixer', 20, 14, 18, 12, 48, 'stk'),
-    P('Soda', 'Mixer', 33, 8, 30, 12, 48, 'stk'),
+    P('Sukkersirup', 'Sirup', 100, 49, 2.3, 1, 3, 'flaske', ''),
+    P('Fever-Tree Tonic', 'Mixer', 20, 14, 18, 12, 48, 'stk', 'Mixer-leverandør'),
+    P('Soda', 'Mixer', 33, 8, 30, 12, 48, 'stk', 'Mixer-leverandør'),
   ];
   const by = (n) => prods.find((p) => p.name === n).id;
   state.products.push(...prods);
@@ -1013,6 +1311,10 @@ function loadDemo() {
 const actions = {
   'close-sheet': closeSheet,
   'new-product': () => productForm(),
+  'new-product-code': (el) => productForm(null, { barcode: el.dataset.code }),
+  'scan-product': scanToProduct,
+  'scan-count': scanInCount,
+  'scan-into-form': (el) => scanIntoForm(el.closest('form')),
   'open-product': (el) => openProduct(el.dataset.id),
   'edit-product': (el) => productForm(product(el.dataset.id)),
   'delete-product': (el) => deleteProduct(el.dataset.id),
@@ -1024,8 +1326,8 @@ const actions = {
     adjustStock(p, d, d > 0 ? 'mottak' : 'svinn');
     refreshCurrent();
   },
-  'copy-shopping': async () => {
-    const text = shoppingListText();
+  'copy-shopping': async (el) => {
+    const text = shoppingListText(el.dataset.supplier);
     try {
       if (navigator.share && matchMedia('(pointer: coarse)').matches) await navigator.share({ text });
       else { await navigator.clipboard.writeText(text); toast('Handleliste kopiert'); }
@@ -1062,6 +1364,15 @@ const actions = {
     it.done = !it.done;
     updateCountRow(row, false);
     saveDraftSoon();
+  },
+  'edit-sales': (el) => salesForm(state.counts.find((c) => c.id === el.dataset.id)),
+  'clear-sales': (el) => {
+    const c = state.counts.find((x) => x.id === el.dataset.id);
+    if (!confirm('Fjerne salgstallene for denne perioden?')) return;
+    delete c.sales;
+    save();
+    closeSheet();
+    render();
   },
   'delete-count': (el) => {
     if (!confirm('Slette denne tellingen? Beholdningen endres ikke.')) return;
@@ -1112,8 +1423,19 @@ document.addEventListener('click', (e) => {
 
 const forms = {
   product: saveProduct,
+  'link-barcode': (form) => {
+    const p = product(form.elements.productId.value);
+    if (!p) return;
+    const clash = productByBarcode(form.dataset.code);
+    if (clash && clash.id !== p.id) return toast(`Koden er allerede brukt på ${clash.name}`);
+    p.barcode = form.dataset.code;
+    save();
+    toast(`Strekkode koblet til ${p.name}`);
+    openProduct(p.id);
+  },
   drink: saveDrink,
   settings: saveSettings,
+  sales: saveSales,
   move: (form, e) => {
     const p = product(form.dataset.id);
     const amount = Math.abs(num(form.elements.amount.value));
