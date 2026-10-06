@@ -39,24 +39,6 @@
   color-scheme: light;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0B1240;
-    --surface: #121A4E;
-    --surface-2: #1B2460;
-    --line: #29336F;
-    --text: #EDE8DE;
-    --muted: #ABA393;
-    --brand: #EDE8DE;
-    --accent: #DE906E;
-    --accent-ink: #0B1240;
-    --highlight: #DE906E;
-    --ok: #7FBF98;
-    --warn: #E5A57F;
-    --bad: #F08A72;
-    color-scheme: dark;
-  }
-}
 
 * { box-sizing: border-box; }
 html, body { margin: 0; }

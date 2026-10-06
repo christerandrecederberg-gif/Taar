@@ -38,7 +38,7 @@ Dataene lagres i nettleserens lokale lagring på enheten. Ta backup jevnlig unde
 | --- | --- |
 | `index.html` | Skall og navigasjon |
 | `app.js` | All logikk: lagring, visninger, telling, pour cost |
-| `styles.css` | Stil etter Tårs profil (Cobalt, Navy, Linen; lyst og mørkt tema) |
+| `styles.css` | Stil etter Tårs profil (Cobalt, Navy, Linen; alltid lyst tema) |
 | `logo.svg`, `fonts/` | Logo og fonter (Cormorant Garamond, Spectral, Inter – SIL OFL) |
 | `sw.js` | Service worker for offline |
 | `manifest.webmanifest`, `icon*` | PWA-installasjon |
