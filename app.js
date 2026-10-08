@@ -7,7 +7,7 @@
 
 // Nøkkelen beholdes uendret slik at eksisterende data ikke forsvinner.
 const STORAGE_KEY = 'taar.data.v1';
-const APP_VERSION = '11';
+const APP_VERSION = '12';
 const CATEGORIES = [
   'Vodka', 'Gin', 'Rom', 'Whisky', 'Tequila/Mezcal', 'Cognac/Brandy', 'Akevitt', 'Likør',
   'Bitter/Amaro', 'Vermut/Aperitiff', 'Vin', 'Musserende', 'Øl/Cider', 'Sirup', 'Mixer', 'Annet',
@@ -93,6 +93,8 @@ const vatFactor = () => 1 + state.settings.vatPct / 100;
 const exVat = (raw) => (state.settings.costsInclVat ? raw / vatFactor() : raw);
 const shown = (raw) => (state.settings.showInclVat ? exVat(raw) * vatFactor() : exVat(raw));
 const krc = (raw, d = 0) => kr(shown(raw), d);
+// For beløp som allerede er eks. mva (varekost, salg, fortjeneste, avvik):
+const krx = (ex, d = 0) => kr(state.settings.showInclVat ? ex * vatFactor() : ex, d);
 const vatLabel = () => (state.settings.showInclVat ? 'inkl. mva' : 'eks. mva');
 const productValue = (p) => p.stock * p.cost;
 const totalValue = () => sum(state.products, productValue);
@@ -113,11 +115,12 @@ function pourPct(cost, price) {
   const ex = priceExVat(price);
   return ex > 0 ? (cost / ex) * 100 : null;
 }
+// Gir pris EKS. mva som treffer målet; vises med krx().
 function suggestedPrice(cost) {
   const s = state.settings;
   if (!s.targetPourCost) return 0;
   const ex = cost / (s.targetPourCost / 100);
-  return s.pricesIncludeVat ? ex * (1 + s.vatPct / 100) : ex;
+  return ex;
 }
 function pctClass(pct) {
   if (pct == null) return '';
@@ -279,6 +282,11 @@ async function scanIntoForm(form) {
   productForm(id ? product(id) : null, code ? { ...draft, barcode: code } : draft);
 }
 
+function updateVatToggle() {
+  const b = $('#vat-toggle');
+  if (b) { b.textContent = vatLabel(); b.setAttribute('aria-pressed', String(!!state.settings.showInclVat)); }
+}
+
 function setTitle(t) { $('#title').textContent = t; document.title = `${t} · Tår`; }
 
 function updateBadges() {
@@ -336,6 +344,7 @@ function render() {
   document.body.classList.toggle('report-mode', route === 'rapport');
   routes[route](arg ? decodeURIComponent(arg) : undefined);
   updateBadges();
+  updateVatToggle();
 }
 window.addEventListener('hashchange', () => { closeSheet(); render(); window.scrollTo(0, 0); });
 const go = (hash) => { if (location.hash === hash) render(); else location.hash = hash; };
@@ -608,7 +617,7 @@ function productForm(p, draft = {}) {
       <div class="field-row">
         <label class="field bottle-only"><span>Flaskestørrelse</span>
           <div class="input-suffix"><input type="number" name="sizeCl" inputmode="decimal" min="1" step="any" value="${v.sizeCl}"><em>cl</em></div></label>
-        <label class="field"><span class="cost-label">Innkjøpspris per ${v.unit === 'stk' ? 'stk' : 'flaske'} ${state.settings.costsInclVat ? 'inkl.' : 'eks.'} mva</span>
+        <label class="field"><span class="cost-label">Innkjøpspris per ${v.unit === 'stk' ? 'stk' : 'flaske'} inkl. mva</span>
           <div class="input-suffix"><input type="number" name="cost" inputmode="decimal" min="0" step="any" value="${v.cost}" placeholder="0"><em>kr</em></div></label>
       </div>
       <div class="price-help">
@@ -650,7 +659,7 @@ function productForm(p, draft = {}) {
       const stk = form.elements.unit.value === 'stk';
       $$('.bottle-only', form).forEach((el) => { el.hidden = stk; });
       $$('.unit-suffix', form).forEach((el) => { el.textContent = stk ? 'stk' : 'fl'; });
-      $('.cost-label', form).textContent = `Innkjøpspris per ${stk ? 'stk' : 'flaske'} ${state.settings.costsInclVat ? 'inkl.' : 'eks.'} mva`;
+      $('.cost-label', form).textContent = `Innkjøpspris per ${stk ? 'stk' : 'flaske'} inkl. mva`;
       $('.alert-fields', form).style.opacity = form.elements.lowAlert.checked ? 1 : 0.4;
     };
     form.addEventListener('change', sync);
@@ -1153,20 +1162,20 @@ function actualPourCostCard(c, rows, totalUsed) {
       <div class="card-head"><h2>Faktisk pour cost</h2>
         <button class="btn small" data-action="edit-sales" data-id="${c.id}">Endre salg</button></div>
       <div class="kv" style="margin-top:0">
-        <div><span>Salg eks. mva</span><b>${kr(a.revenueEx)}</b></div>
-        <div><span>Forbruk eks. mva</span><b>${kr(exVat(totalUsed))}</b></div>
+        <div><span>Salg ${vatLabel()}</span><b>${krx(a.revenueEx)}</b></div>
+        <div><span>Forbruk ${vatLabel()}</span><b>${krc(totalUsed)}</b></div>
         <div><span>Faktisk</span>${pctBadge(a.actualPct)}</div>
         <div><span>Teoretisk</span>${pctBadge(a.theoPct)}</div>
       </div>
       ${a.soldCount ? `
-        <p style="margin:0 0 .4rem">${fmtNum(a.soldCount)} drinker solgt. Oppskriftene tilsier ${kr(a.theoCost)} i varekost,
-          tellingene viser ${kr(exVat(totalUsed))} (eks. mva): <b style="color:var(${lossValue > 0 ? '--bad' : '--ok'})">${lossValue > 0 ? '+' : ''}${kr(lossValue)}</b> i avvik.</p>
+        <p style="margin:0 0 .4rem">${fmtNum(a.soldCount)} drinker solgt. Oppskriftene tilsier ${krx(a.theoCost)} i varekost,
+          tellingene viser ${krc(totalUsed)}: <b style="color:var(${lossValue > 0 ? '--bad' : '--ok'})">${lossValue > 0 ? '+' : ''}${krx(lossValue)}</b> i avvik (${vatLabel()}).</p>
         <h3>Avvik per produkt</h3>
         <div class="table-wrap"><table>
           <thead><tr><th>Produkt</th><th class="n">Forventet</th><th class="n">Brukt</th><th class="n">Avvik</th></tr></thead>
           <tbody>${a.variance.map((r) => `
             <tr><td>${esc(r.name)}</td><td class="n">${fmtQ(r, r.expected)}</td><td class="n">${fmtQ(r, r.used)}</td>
-            <td class="n" style="color:var(${r.diffValue > 0.5 ? '--bad' : r.diffValue < -0.5 ? '--ok' : '--muted'})">${r.diffValue > 0 ? '+' : ''}${kr(r.diffValue)}</td></tr>`).join('')}
+            <td class="n" style="color:var(${r.diffValue > 0.5 ? '--bad' : r.diffValue < -0.5 ? '--ok' : '--muted'})">${r.diffValue > 0 ? '+' : ''}${krx(r.diffValue)}</td></tr>`).join('')}
           </tbody></table></div>
         <p class="hint" style="margin-top:8px">Positivt avvik betyr at mer er brukt enn oppskriftene tilsier: svinn, overpouring,
           spanderte drinker eller salg som ikke er lagt inn. Negativt avvik kan bety for lite pour eller manglende varemottak.</p>`
@@ -1181,14 +1190,14 @@ function salesForm(c) {
     <h2>Salg i perioden</h2>
     <p class="lead" style="margin-top:0">${prevDate ? `${fmtDate(prevDate)} – ${fmtDate(c.date)}. ` : ''}Hent tallene fra kassasystemet.</p>
     <form data-form="sales" data-id="${c.id}">
-      <label class="field"><span>Totalt drikkesalg ${state.settings.pricesIncludeVat ? 'inkl.' : 'eks.'} mva</span>
+      <label class="field"><span>Totalt drikkesalg inkl. mva</span>
         <div class="input-suffix"><input type="number" name="revenue" inputmode="decimal" min="0" step="any" value="${s.revenue || ''}" placeholder="Valgfritt"><em>kr</em></div></label>
       <p class="hint">Ta med alt salg som bruker varene i baren, men ikke kaffe og mat. Står feltet tomt, brukes summen av drinkene under.</p>
       ${state.drinks.length ? `
         <h3>Antall solgt per drink</h3>
         <div class="list">${state.drinks.slice().sort(sortByName).map((d) => `
           <label class="row" style="cursor:default">
-            <div class="row-main"><div class="row-title drink">${esc(d.name)}</div><div class="row-sub">${kr(d.price)}</div></div>
+            <div class="row-main"><div class="row-title drink">${esc(d.name)}</div><div class="row-sub">${krx(priceExVat(d.price))}</div></div>
             <input type="number" name="d_${d.id}" inputmode="numeric" min="0" step="1" value="${s.drinks?.[d.id] || ''}" placeholder="0" style="width:90px;text-align:right">
           </label>`).join('')}</div>` : '<p class="hint">Legg inn drinker under Pour cost for å se avvik per produkt.</p>'}
       <div class="btn-row">
@@ -1265,10 +1274,10 @@ function renderReport(id) {
         <div><span>Forbruk</span><b>${prev ? krc(totalUsed) : '–'}</b></div>
         <div><span>Varemottak</span><b>${prev ? krc(received) : '–'}</b></div>
         ${pour ? `
-          <div><span>Salg eks. mva</span><b>${kr(pour.revenueEx)}</b></div>
+          <div><span>Salg ${vatLabel()}</span><b>${krx(pour.revenueEx)}</b></div>
           <div><span>Faktisk pour cost</span><b>${pour.actualPct == null ? '–' : fmtNum(pour.actualPct, 1) + ' %'}</b></div>
           <div><span>Teoretisk pour cost</span><b>${pour.theoPct == null ? '–' : fmtNum(pour.theoPct, 1) + ' %'}</b></div>
-          <div><span>Avvik</span><b>${pour.soldCount ? (sum(pour.variance, (r) => r.diffValue) > 0 ? '+' : '') + kr(sum(pour.variance, (r) => r.diffValue)) : '–'}</b></div>` : ''}
+          <div><span>Avvik</span><b>${pour.soldCount ? (sum(pour.variance, (r) => r.diffValue) > 0 ? '+' : '') + krx(sum(pour.variance, (r) => r.diffValue)) : '–'}</b></div>` : ''}
       </section>
 
       ${prev ? `
@@ -1291,7 +1300,7 @@ function renderReport(id) {
             <thead><tr><th>Produkt</th><th class="n">Forventet</th><th class="n">Brukt</th><th class="n">Avvik</th></tr></thead>
             <tbody>${pour.variance.map((r) => `
               <tr><td>${esc(r.name)}</td><td class="n">${q(r, r.expected)}</td><td class="n">${q(r, r.used)}</td>
-              <td class="n">${r.diffValue > 0 ? '+' : ''}${kr(r.diffValue)}</td></tr>`).join('')}
+              <td class="n">${r.diffValue > 0 ? '+' : ''}${krx(r.diffValue)}</td></tr>`).join('')}
             </tbody>
           </table>
           <p class="hint">Positivt avvik = mer brukt enn oppskriftene tilsier (svinn, overpouring, spanderte drinker eller salg som ikke er lagt inn).</p>
@@ -1310,7 +1319,7 @@ function renderReport(id) {
         </table>
       </section>
 
-      <footer class="report-foot">Beløp ${vatLabel()} (pour cost og avvik eks. mva) · Tår · Cocktails &amp; kaffe · laget ${fmtDateTime(new Date().toISOString())}</footer>
+      <footer class="report-foot">Beløp ${vatLabel()} · Tår · Cocktails &amp; kaffe · laget ${fmtDateTime(new Date().toISOString())}</footer>
     </article>`;
 }
 
@@ -1322,14 +1331,14 @@ function reportText(c) {
   if (prev) {
     lines.push(`Endring: ${c.value >= prev.value ? '+' : ''}${krc(c.value - prev.value)}`, `Forbruk: ${krc(totalUsed)}`);
     if (pour) {
-      lines.push(`Salg eks. mva: ${kr(pour.revenueEx)}`);
+      lines.push(`Salg (${vatLabel()}): ${krx(pour.revenueEx)}`);
       if (pour.actualPct != null) lines.push(`Faktisk pour cost: ${fmtNum(pour.actualPct, 1)} %`);
       if (pour.theoPct != null) lines.push(`Teoretisk pour cost: ${fmtNum(pour.theoPct, 1)} %`);
     }
     const top = rows.filter((r) => r.usedValue > 0).sort((a, b) => b.usedValue - a.usedValue).slice(0, 5);
     if (top.length) lines.push('', 'Mest brukt:', ...top.map((r) => `• ${r.name}: ${fmtNum(r.used, 1)} ${r.unit === 'stk' ? 'stk' : 'fl'} (${krc(r.usedValue)})`));
     const worst = (pour?.variance || []).filter((r) => r.diffValue > 0.5).slice(0, 5);
-    if (worst.length) lines.push('', 'Største avvik:', ...worst.map((r) => `• ${r.name}: +${kr(r.diffValue)}`));
+    if (worst.length) lines.push('', 'Største avvik:', ...worst.map((r) => `• ${r.name}: +${krx(r.diffValue)}`));
   }
   return lines.join('\n');
 }
@@ -1359,13 +1368,13 @@ function renderDrinks() {
   }).sort((a, b) => (b.pct ?? -1) - (a.pct ?? -1));
 
   V.innerHTML = `
-    <p class="muted small" style="margin:0 4px 10px">Mål: ${fmtNum(s.targetPourCost)} % · priser ${s.pricesIncludeVat ? `inkl. ${fmtNum(s.vatPct)} % mva` : 'eks. mva'} ·
+    <p class="muted small" style="margin:0 4px 10px">Mål: ${fmtNum(s.targetPourCost)} % · beløp ${vatLabel()} ·
       <a href="#/mer">endre</a></p>
     ${drinks.length ? `<div class="list">${drinks.map(({ d, cost, pct }) => `
       <div class="row" data-action="edit-drink" data-id="${d.id}">
         <div class="row-main">
           <div class="row-title drink">${esc(d.name)}</div>
-          <div class="row-sub">Kost ${kr(cost, 2)} · pris ${kr(d.price)} · ${esc(d.ingredients.map((i) => product(i.productId)?.name).filter(Boolean).join(', ') || 'ingen ingredienser')}</div>
+          <div class="row-sub">Kost ${krx(cost, 2)} · pris ${krx(priceExVat(d.price))} · ${esc(d.ingredients.map((i) => product(i.productId)?.name).filter(Boolean).join(', ') || 'ingen ingredienser')}</div>
         </div>
         <div class="row-end">${pctBadge(pct)}</div>
       </div>`).join('')}</div>`
@@ -1400,7 +1409,7 @@ function drinkForm(d) {
     <h2>${isNew ? 'Ny drink' : 'Rediger drink'}</h2>
     <form data-form="drink" data-id="${isNew ? '' : d.id}">
       <label class="field"><span>Navn</span><input type="text" name="name" value="${esc(d.name)}" required placeholder="F.eks. Negroni"></label>
-      <label class="field"><span>Utsalgspris ${s.pricesIncludeVat ? 'inkl. mva' : 'eks. mva'}</span>
+      <label class="field"><span>Utsalgspris inkl. mva</span>
         <div class="input-suffix"><input type="number" name="price" inputmode="decimal" min="0" step="any" value="${d.price}" placeholder="0"><em>kr</em></div></label>
       <div class="field"><span class="muted small">Ingredienser</span>
         <div id="ings" style="margin-top:4px">${d.ingredients.map(ingredientRow).join('')}</div>
@@ -1442,11 +1451,12 @@ function updateDrinkCalc(form) {
   const sugg = suggestedPrice(cost);
   const profit = priceExVat(price) - cost;
   $('#drink-calc').innerHTML = `
-    <span>Varekost eks. mva</span><span>${kr(cost, 2)}</span>
-    ${s.pricesIncludeVat ? `<span>Pris eks. mva</span><span>${kr(priceExVat(price), 2)}</span>` : ''}
-    <span>Fortjeneste per drink</span><span>${price ? kr(profit, 2) : '–'}</span>
+    <span>Varekost ${vatLabel()}</span><span>${krx(cost, 2)}</span>
+    <span>Pris ${vatLabel()}</span><span>${price ? krx(priceExVat(price), 2) : '–'}</span>
+    <span>Fortjeneste per drink ${vatLabel()}</span><span>${price ? krx(profit, 2) : '–'}</span>
     <span class="big">Pour cost</span><span>${pctBadge(pct)}</span>
-    <span class="muted small">Pris for ${fmtNum(s.targetPourCost)} % pour cost</span><span class="muted small">${cost ? kr(Math.ceil(sugg)) : '–'}</span>`;
+    <span class="muted small">Pris for ${fmtNum(s.targetPourCost)} % pour cost</span><span class="muted small">${cost ? krx(sugg) : '–'}</span>
+    <span></span><span><button type="button" class="linkbtn small" data-action="toggle-vat">Vis ${state.settings.showInclVat ? 'eks.' : 'inkl.'} mva</button></span>`;
 }
 
 function saveDrink(form) {
@@ -1485,10 +1495,8 @@ function renderMore() {
           <label class="field"><span>Mva-sats</span>
             <div class="input-suffix"><input type="number" name="vatPct" inputmode="decimal" min="0" max="100" step="any" value="${s.vatPct}"><em>%</em></div></label>
         </div>
-        <label class="check"><input type="checkbox" name="pricesIncludeVat" ${s.pricesIncludeVat ? 'checked' : ''}> Utsalgsprisene mine er inkl. mva</label>
-        <label class="check"><input type="checkbox" name="costsInclVat" ${s.costsInclVat ? 'checked' : ''}> Innkjøpsprisene jeg skriver inn er inkl. mva</label>
-        <label class="check"><input type="checkbox" name="showInclVat" ${s.showInclVat ? 'checked' : ''}> Vis beløp inkl. mva (lagerverdi, forbruk, rapporter)</label>
-        <p class="hint">Pour cost regnes alltid eks. mva: varekost eks. mva ÷ utsalgspris eks. mva.</p>
+        <label class="check"><input type="checkbox" name="showInclVat" ${s.showInclVat ? 'checked' : ''}> Vis alle beløp med mva</label>
+        <p class="hint">Alle priser skrives inn med mva. Bryteren bestemmer bare hvordan beløpene vises – den finnes også øverst til høyre på hver side. Pour cost i % blir den samme uansett.</p>
         <button class="btn primary block">Lagre innstillinger</button>
       </form>
     </div>
@@ -1539,8 +1547,6 @@ function saveSettings(form) {
   Object.assign(state.settings, {
     targetPourCost: Math.min(100, Math.max(1, num(f.targetPourCost.value) || 20)),
     vatPct: Math.min(100, Math.max(0, num(f.vatPct.value))),
-    pricesIncludeVat: f.pricesIncludeVat.checked,
-    costsInclVat: f.costsInclVat.checked,
     showInclVat: f.showInclVat.checked,
   });
   save();
@@ -1682,6 +1688,14 @@ const actions = {
   'close-sheet': closeSheet,
   'new-product': () => productForm(),
   'bulk-add': () => bulkForm(),
+  'toggle-vat': () => {
+    state.settings.showInclVat = !state.settings.showInclVat;
+    save();
+    toast(`Viser beløp ${vatLabel()}`);
+    if (sheet.open && $('#drink-calc')) updateDrinkCalc($('#drink-calc').closest('form'));
+    else if (sheet.open && $('.sheet [data-action=edit-product]')) openProduct($('.sheet [data-action=edit-product]').dataset.id);
+    render();
+  },
   'toggle-important': (el) => {
     const p = product(el.dataset.id);
     p.important = !p.important;
@@ -1858,6 +1872,10 @@ document.addEventListener('submit', (e) => {
 });
 
 /* ---------- Oppstart ---------- */
+// Alle priser skrives inn med mva; bare visningen kan byttes.
+state.settings.pricesIncludeVat = true;
+state.settings.costsInclVat = true;
+
 // Engangsflytting: akevitt som ble lagt under «Annet» før kategorien fantes.
 if (!state.settings.akevittMoved) {
   let moved = 0;

@@ -344,3 +344,13 @@ details.later summary {
 details.later summary::-webkit-details-marker { display: none; }
 details.later summary::before { content: '›'; display: inline-block; width: 1em; transition: transform .15s; }
 details.later[open] summary::before { transform: rotate(90deg); }
+
+/* Felles mva-bryter i toppen */
+.vat-toggle {
+  margin-left: auto; flex-shrink: 0; min-height: 32px; padding: 0 12px; border-radius: 16px;
+  border: 1px solid var(--line); background: var(--surface); color: var(--muted);
+  font-size: .78rem; font-weight: 600; letter-spacing: .02em; cursor: pointer;
+}
+.vat-toggle[aria-pressed="true"] { color: var(--brand); border-color: color-mix(in srgb, var(--brand) 35%, var(--line)); }
+@media print { .vat-toggle { display: none; } }
+.topbar h1 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
