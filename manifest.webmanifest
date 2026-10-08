@@ -1,0 +1,18 @@
+{
+  "name": "Tår – barlager",
+  "short_name": "Tår",
+  "description": "Personlig lageroversikt, telling, varsler om lavt lager og pour cost for baren.",
+  "lang": "nb",
+  "start_url": "./#/oversikt",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#2C438C",
+  "theme_color": "#F5F2EC",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" },
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
