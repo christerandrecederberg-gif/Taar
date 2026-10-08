@@ -323,3 +323,8 @@ button.chip { color: var(--text); }
   .report tr { break-inside: avoid; }
   .report h3 { break-after: avoid; }
 }
+
+/* Prishjelp i produktskjema */
+.price-help { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin: -4px 0 12px; }
+.price-help .check { margin: 0; font-size: .88rem; }
+.vmp-link { font-size: .88rem; white-space: nowrap; }

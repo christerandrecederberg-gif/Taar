@@ -360,6 +360,7 @@ function renderDashboard() {
     }
     return null;
   })();
+  const noPrice = state.products.filter((p) => !(p.cost > 0)).length;
   const daysSinceBackup = state.settings.lastBackup ? (Date.now() - new Date(state.settings.lastBackup)) / 864e5 : Infinity;
 
   V.innerHTML = `
@@ -418,6 +419,12 @@ function renderDashboard() {
           <a href="#/historikk/${latestActual.c.id}">${fmtDate(latestActual.c.date)}</a></span></p>` : ''}
     </div>
 
+    ${noPrice ? `
+      <div class="card">
+        <div class="card-head"><h2>Mangler pris</h2><button class="btn small" data-action="show-noprice">Vis</button></div>
+        <p class="muted small" style="margin:0">${noPrice} produkter har ingen innkjøpspris. Uten pris blir lagerverdi og pour cost for lave.</p>
+      </div>` : ''}
+
     ${daysSinceBackup > 14 ? `
       <div class="card">
         <h2>💾 Ta en backup</h2>
@@ -435,7 +442,7 @@ function daysAgo(iso) {
 /* ============================================================
    LAGER
    ============================================================ */
-const invFilter = { q: '', cat: '', low: false };
+const invFilter = { q: '', cat: '', low: false, noPrice: false };
 
 function renderInventory() {
   setTitle('Lager');
@@ -444,6 +451,7 @@ function renderInventory() {
       <input type="search" id="inv-q" placeholder="Søk produkt…" value="${esc(invFilter.q)}" autocomplete="off">
       <select id="inv-cat">${categoryOptions(invFilter.cat, true)}</select>
       <label class="chip"><input type="checkbox" id="inv-low" ${invFilter.low ? 'checked' : ''}> Kun lavt</label>
+      <label class="chip"><input type="checkbox" id="inv-noprice" ${invFilter.noPrice ? 'checked' : ''}> Mangler pris</label>
       <button class="chip" data-action="scan-product">${SCAN_ICON} Skann</button>
       <button class="chip" data-action="bulk-add">+ Legg til mange</button>
     </div>
@@ -453,6 +461,7 @@ function renderInventory() {
   $('#inv-q').addEventListener('input', (e) => { invFilter.q = e.target.value; renderInventoryList(); });
   $('#inv-cat').addEventListener('change', (e) => { invFilter.cat = e.target.value; renderInventoryList(); });
   $('#inv-low').addEventListener('change', (e) => { invFilter.low = e.target.checked; renderInventoryList(); });
+  $('#inv-noprice').addEventListener('change', (e) => { invFilter.noPrice = e.target.checked; renderInventoryList(); });
   renderInventoryList();
 }
 
@@ -460,7 +469,7 @@ function renderInventoryList() {
   const list = $('#inv-list');
   if (!list) return;
   const items = state.products.filter((p) =>
-    matchesQuery(p, invFilter.q) && (!invFilter.cat || p.category === invFilter.cat) && (!invFilter.low || isLow(p)));
+    matchesQuery(p, invFilter.q) && (!invFilter.cat || p.category === invFilter.cat) && (!invFilter.low || isLow(p)) && (!invFilter.noPrice || !(p.cost > 0)));
   $('#inv-summary').textContent = `${items.length} produkter · ${kr(sum(items, productValue))}`;
   if (!items.length) {
     list.innerHTML = `<div class="card empty">${state.products.length ? 'Ingen treff.' :
@@ -534,6 +543,7 @@ function openProduct(id) {
 
     <div class="btn-row">
       <button class="btn" data-action="edit-product" data-id="${p.id}">Rediger produkt</button>
+      ${p.cost > 0 ? '' : `<a class="btn" target="_blank" rel="noopener" href="${vmpUrl(p.name)}">Vinmonopolet ↗</a>`}
     </div>`);
 }
 
@@ -541,6 +551,8 @@ const suppliers = () => [...new Set(state.products.map((p) => p.supplier).filter
 const productByBarcode = (code) => state.products.find((p) => p.barcode && p.barcode === code);
 
 // p = eksisterende produkt (eller null for nytt), draft = verdier som overstyrer (f.eks. etter skanning)
+const vmpUrl = (name) => `https://www.vinmonopolet.no/search?q=${encodeURIComponent((name || '').trim())}`;
+
 function productForm(p, draft = {}) {
   const isNew = !p;
   const v = { name: '', category: 'Gin', unit: 'flaske', sizeCl: 70, cost: '', stock: 0, lowAlert: true, threshold: 1, par: 3,
@@ -564,6 +576,10 @@ function productForm(p, draft = {}) {
           <div class="input-suffix"><input type="number" name="sizeCl" inputmode="decimal" min="1" step="any" value="${v.sizeCl}"><em>cl</em></div></label>
         <label class="field"><span class="cost-label">Innkjøpspris per ${v.unit === 'stk' ? 'stk' : 'flaske'}</span>
           <div class="input-suffix"><input type="number" name="cost" inputmode="decimal" min="0" step="any" value="${v.cost}" placeholder="0"><em>kr</em></div></label>
+      </div>
+      <div class="price-help">
+        <label class="check"><input type="checkbox" name="costInclVat"> Prisen er inkl. mva – trekk fra ${fmtNum(state.settings.vatPct)} %</label>
+        <a class="vmp-link" target="_blank" rel="noopener" href="${vmpUrl(v.name)}">Finn pris på Vinmonopolet ↗</a>
       </div>
       <label class="field"><span>Beholdning nå</span>
         <div class="input-suffix"><input type="number" name="stock" inputmode="decimal" min="0" step="any" value="${v.stock}"><em class="unit-suffix">${unit}</em></div></label>
@@ -604,6 +620,7 @@ function productForm(p, draft = {}) {
       $('.alert-fields', form).style.opacity = form.elements.lowAlert.checked ? 1 : 0.4;
     };
     form.addEventListener('change', sync);
+    form.elements.name.addEventListener('input', () => { $('.vmp-link', form).href = vmpUrl(form.elements.name.value); });
     sync();
     if (isNew && !v.name) form.elements.name.focus();
   });
@@ -616,7 +633,7 @@ function readProductForm(form) {
     category: f.category.value,
     unit: f.unit.value,
     sizeCl: Math.max(1, num(f.sizeCl.value) || 70),
-    cost: Math.max(0, num(f.cost.value)),
+    cost: round2(Math.max(0, num(f.cost.value)) / (f.costInclVat.checked ? 1 + state.settings.vatPct / 100 : 1)),
     lowAlert: f.lowAlert.checked,
     threshold: Math.max(0, num(f.threshold.value)),
     par: Math.max(0, num(f.par.value)),
@@ -1604,7 +1621,8 @@ const actions = {
   'open-product': (el) => openProduct(el.dataset.id),
   'edit-product': (el) => productForm(product(el.dataset.id)),
   'delete-product': (el) => deleteProduct(el.dataset.id),
-  'show-low': (el, e) => { e.preventDefault(); invFilter.low = true; invFilter.q = ''; invFilter.cat = ''; go('#/lager'); },
+  'show-noprice': () => { Object.assign(invFilter, { q: '', cat: '', low: false, noPrice: true }); go('#/lager'); },
+  'show-low': (el, e) => { e.preventDefault(); invFilter.low = true; invFilter.noPrice = false; invFilter.q = ''; invFilter.cat = ''; go('#/lager'); },
   adj: (el) => {
     const p = product(el.dataset.id);
     const d = num(el.dataset.d);
