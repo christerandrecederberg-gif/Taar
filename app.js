@@ -339,7 +339,7 @@ function renderDashboard() {
         <div class="hero"><div class="logo" role="img" aria-label="Tår"></div><div class="tagline">Cocktails &amp; kaffe</div></div>
         <p>Legg inn produktene i baren, tell beholdningen og få varsel når noe begynner å gå tomt.</p>
         <div class="btn-row">
-          <button class="btn primary" data-action="new-product">Legg til første produkt</button>
+          <button class="btn primary" data-action="bulk-add">Legg til produkter</button>
           <button class="btn" data-action="load-demo">Prøv med eksempeldata</button>
         </div>
       </div>`;
@@ -445,6 +445,7 @@ function renderInventory() {
       <select id="inv-cat">${categoryOptions(invFilter.cat, true)}</select>
       <label class="chip"><input type="checkbox" id="inv-low" ${invFilter.low ? 'checked' : ''}> Kun lavt</label>
       <button class="chip" data-action="scan-product">${SCAN_ICON} Skann</button>
+      <button class="chip" data-action="bulk-add">+ Legg til mange</button>
     </div>
     <div id="inv-summary" class="muted small" style="margin:0 4px 4px"></div>
     <div id="inv-list"></div>
@@ -651,6 +652,148 @@ function saveProduct(form) {
   save();
   closeSheet();
   refreshCurrent();
+}
+
+/* ---------- Legg til mange produkter på én gang ----------
+   Én linje per produkt: Navn; Kategori; Størrelse; Innkjøpspris; Antall; Leverandør
+   Bare navnet er påkrevd. Skilletegn kan være semikolon eller tabulator (lim inn fra Excel). */
+const CATEGORY_WORDS = [
+  ['Gin', /\bgin\b|genever|tanqueray|hendrick|bombay|beefeater|monkey 47|gordon/i],
+  ['Vodka', /vodka|absolut|smirnoff|belvedere|grey goose|ketel one|finlandia/i],
+  ['Rom', /\brum\b|\brom\b|rhum|havana|bacardi|diplomatico|plantation|kraken|appleton|zacapa|captain morgan/i],
+  ['Whisky', /whisk|bourbon|scotch|jameson|jack daniel|maker'?s mark|bulleit|laphroaig|glen|talisker|johnnie walker|lagavulin|rye/i],
+  ['Tequila/Mezcal', /tequila|mezcal|\b1800\b|olmeca|patr[oó]n|don julio|espol[oó]n|casamigos|del maguey|ocho/i],
+  ['Cognac/Brandy', /cognac|brandy|armagnac|calvados|hennessy|r[eé]my|martell|pisco/i],
+  ['Bitter/Amaro', /amaro|bitter|campari|aperol|fernet|cynar|montenegro|averna|angostura|suze/i],
+  ['Vermut/Aperitiff', /verm[ou]|martini (rosso|bianco|extra)|noilly|cocchi|carpano|antica formula|dolin|lillet|punt e mes|sherry|port/i],
+  ['Likør', /lik[øo]r|liqueur|cointreau|triple sec|chartreuse|amaretto|kahl[uú]a|baileys|st[- ]germain|maraschino|cr[eè]me de|falernum|licor 43|galliano|benedictine|drambuie|curacao/i],
+  ['Musserende', /prosecco|champagne|cava|cr[eé]mant|musserende|spumante|sekt/i],
+  ['Vin', /\bvin\b|wine|riesling|chardonnay|pinot|sauvignon|merlot|cabernet|rioja|chianti|barolo/i],
+  ['Øl/Cider', /\b[øo]l\b|beer|lager|\bipa\b|pils|stout|cider|ale\b/i],
+  ['Sirup', /sirup|syrup|orgeat|grenadine|monin|agave/i],
+  ['Mixer', /tonic|soda|ginger (ale|beer)|cola|fever[- ]tree|schweppes|juice|lemonade|sprite|farris|bris/i],
+];
+function guessCategory(name) {
+  return CATEGORY_WORDS.find(([, re]) => re.test(name))?.[0] || null;
+}
+function matchCategory(text) {
+  const t = (text || '').trim().toLowerCase();
+  if (!t) return null;
+  return CATEGORIES.find((c) => c.toLowerCase() === t || c.toLowerCase().split('/').includes(t)) ||
+    guessCategory(t) || null;
+}
+// "70", "70cl", "0,7l", "1 l", "75 cl" -> cl
+function parseSizeCl(text) {
+  const m = String(text || '').replace(',', '.').match(/([\d.]+)\s*(cl|ml|l)?/i);
+  if (!m) return null;
+  let v = parseFloat(m[1]);
+  const u = (m[2] || '').toLowerCase();
+  if (u === 'l' || (!u && v <= 3)) v *= 100;
+  else if (u === 'ml') v /= 10;
+  return v > 0 ? Math.round(v * 10) / 10 : null;
+}
+
+function parseBulk(text, defaults) {
+  const existing = new Set(state.products.map((p) => p.name.trim().toLowerCase()));
+  const seen = new Set();
+  const items = [];
+  let skipped = 0;
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.replace(/^\s*(?:[•\-*–]|\d+[.)])\s+/, '').trim(); // fjern punkttegn/nummerering
+    if (!line) continue;
+    const cols = line.split(/\t|;/).map((s) => s.trim());
+    const name = cols[0];
+    if (!name || /^navn$/i.test(name)) continue; // hopp over overskriftslinje
+    const key = name.toLowerCase();
+    if (existing.has(key) || seen.has(key)) { skipped++; continue; }
+    seen.add(key);
+    const category = matchCategory(cols[1]) || guessCategory(name) || defaults.category;
+    const isStk = /\bstk\b/i.test(cols[2] || '') || (!cols[2] && (category === 'Mixer' || category === 'Øl/Cider'));
+    items.push({
+      name,
+      category,
+      unit: isStk ? 'stk' : 'flaske',
+      sizeCl: parseSizeCl(cols[2]) || (category === 'Musserende' || category === 'Vin' || category === 'Vermut/Aperitiff' ? 75 : defaults.sizeCl),
+      cost: Math.max(0, num(cols[3])),
+      stock: Math.max(0, round1(num(cols[4]))),
+      supplier: cols[5] || defaults.supplier,
+    });
+  }
+  return { items, skipped };
+}
+
+function bulkForm(prefill = '') {
+  openSheet(`
+    <h2>Legg til mange</h2>
+    <p class="lead" style="margin-top:0">Ett produkt per linje. Bare navnet er nødvendig – resten kan du fylle inn senere.</p>
+    <form data-form="bulk">
+      <label class="field"><span>Produkter</span>
+        <textarea name="text" rows="9" placeholder="Tanqueray London Dry; Gin; 70; 329; 3
+Campari; Bitter; 70cl; 279; 2,5
+Absolut Vodka
+Fever-Tree Tonic; Mixer; stk; 14; 24" style="font-size:.9rem">${esc(prefill)}</textarea></label>
+      <p class="hint">Rekkefølge: <b>Navn; Kategori; Størrelse; Innkjøpspris; Antall; Leverandør</b>. Kategori gjettes ut fra navnet hvis den mangler.
+        Du kan også lime inn rett fra Excel.</p>
+      <div class="field-row">
+        <label class="field"><span>Standard kategori</span><select name="category">${categoryOptions('Annet')}</select></label>
+        <label class="field"><span>Standard størrelse</span>
+          <div class="input-suffix"><input type="number" name="sizeCl" inputmode="decimal" min="1" step="any" value="70"><em>cl</em></div></label>
+      </div>
+      <label class="field"><span>Leverandør (valgfritt)</span>
+        <input type="text" name="supplier" list="supplier-list-bulk" autocomplete="off" placeholder="Brukes når linjen ikke har leverandør">
+        <datalist id="supplier-list-bulk">${suppliers().map((s) => `<option value="${esc(s)}">`).join('')}</datalist></label>
+      <label class="check"><input type="checkbox" name="lowAlert" checked> Varsle ved lavt lager (ved 1 igjen)</label>
+      <div class="calc" id="bulk-preview" style="display:block"></div>
+      <div class="btn-row">
+        <label class="btn" style="flex:0 0 auto">Velg fil<input type="file" accept=".csv,.txt,text/csv,text/plain" hidden id="bulk-file"></label>
+        <button class="btn primary" id="bulk-submit">Legg til</button>
+      </div>
+    </form>`, (root) => {
+    const form = $('form', root);
+    const update = () => {
+      const { items, skipped } = parseBulk(form.elements.text.value, bulkDefaults(form));
+      const cats = {};
+      for (const i of items) cats[i.category] = (cats[i.category] || 0) + 1;
+      $('#bulk-preview', root).innerHTML = items.length
+        ? `<b>${items.length} nye produkter</b>${skipped ? ` · ${skipped} finnes fra før og hoppes over` : ''}<br>
+           <span class="muted small">${Object.entries(cats).map(([c, n]) => `${esc(c)} ${n}`).join(' · ')}</span>`
+        : `<span class="muted">${skipped ? `${skipped} finnes fra før.` : 'Skriv eller lim inn produkter over.'}</span>`;
+      $('#bulk-submit', root).disabled = !items.length;
+    };
+    form.addEventListener('input', update);
+    form.addEventListener('change', update);
+    $('#bulk-file', root).addEventListener('change', async (e) => {
+      const f = e.target.files[0];
+      if (!f) return;
+      form.elements.text.value = await f.text();
+      update();
+    });
+    update();
+  });
+}
+
+function bulkDefaults(form) {
+  const f = form.elements;
+  return { category: f.category.value, sizeCl: Math.max(1, num(f.sizeCl.value) || 70), supplier: f.supplier.value.trim() };
+}
+
+function saveBulk(form) {
+  const { items } = parseBulk(form.elements.text.value, bulkDefaults(form));
+  if (!items.length) return;
+  const lowAlert = form.elements.lowAlert.checked;
+  const now = new Date().toISOString();
+  for (const i of items) {
+    const p = { id: uid(), ...i, lowAlert, threshold: 1, par: 0, barcode: '', notes: '', createdAt: now };
+    state.products.push(p);
+    addLog(p, 'start', p.stock);
+  }
+  save();
+  closeSheet();
+  toast(`${items.length} produkter lagt til`);
+  invFilter.q = '';
+  invFilter.cat = '';
+  invFilter.low = false;
+  go('#/lager');
 }
 
 function deleteProduct(id) {
@@ -1453,6 +1596,7 @@ function loadDemo() {
 const actions = {
   'close-sheet': closeSheet,
   'new-product': () => productForm(),
+  'bulk-add': () => bulkForm(),
   'new-product-code': (el) => productForm(null, { barcode: el.dataset.code }),
   'scan-product': scanToProduct,
   'scan-count': scanInCount,
@@ -1575,6 +1719,7 @@ document.addEventListener('click', (e) => {
 
 const forms = {
   product: saveProduct,
+  bulk: saveBulk,
   'link-barcode': (form) => {
     const p = product(form.elements.productId.value);
     if (!p) return;
