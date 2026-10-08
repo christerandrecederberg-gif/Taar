@@ -5,7 +5,7 @@ En enkel inventar-app for baren, inspirert av Backbar. Den er laget for mobil og
 ## Funksjoner
 
 - **Lager**: produkter per kategori, med flaskestørrelse, innkjøpspris og beholdning. Med +/− justerer du raskt, og i produktkortet registrerer du varemottak eller svinn.
-- **Varsler om lavt lager**: du slår på varsel for de produktene du vil følge og setter en grense. Lavt lager vises på oversikten, som merke på ikonet og som en handleliste du kan kopiere, med «bestill opp til»-nivå.
+- **Varsler om lavt lager**: du slår på varsel og setter en grense per produkt (standard 0,3 flaske). Produkter du merker med ★ Viktig havner under «Må bestilles» i rødt, og det er bare de som teller på app-ikonet. Resten havner under «Kan vente». Handlelisten tar med de viktige, og du kan velge å ta med alt. Under Mer kan du endre grensen for mange produkter på én gang.
 - **Telling**: du teller fulle flasker og åpne flasker i tideler med en glidebryter. Tellingen er forhåndsutfylt med dagens beholdning, og fremdriften lagres underveis.
 - **Forbruk**: mellom to tellinger beregnes forbruket per produkt slik: forrige telling + varemottak − ny telling. Du ser det både i antall og i kroner.
 - **Leverandører**: hvert produkt kan ha en leverandør. Lavt lager og handlelisten grupperes etter leverandør, og hver gruppe kan deles for seg.

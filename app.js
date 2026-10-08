@@ -84,6 +84,8 @@ const qtyLabel = (p, q) => (isBottle(p) ? `${fmtNum(q, 1)} fl` : `${fmtNum(q, q 
 const costPerCl = (p) => (isBottle(p) && p.sizeCl > 0 ? p.cost / p.sizeCl : 0);
 const isLow = (p) => !!p.lowAlert && p.stock <= p.threshold;
 const lowProducts = () => state.products.filter(isLow);
+const urgentProducts = () => lowProducts().filter((p) => p.important);
+const STAR = (p) => `<button class="star ${p.important ? 'on' : ''}" data-action="toggle-important" data-id="${p.id}" aria-label="${p.important ? 'Fjern viktig-markering' : 'Merk som viktig'}" aria-pressed="${!!p.important}">${p.important ? '★' : '☆'}</button>`;
 const productValue = (p) => p.stock * p.cost;
 const totalValue = () => sum(state.products, productValue);
 const orderQty = (p) => Math.max(0, Math.ceil((p.par > 0 ? p.par : p.threshold + 1) - p.stock));
@@ -129,7 +131,7 @@ function adjustStock(p, delta, type) {
   const wasLow = p.lowAlert && before <= p.threshold;
   addLog(p, type, p.stock - before);
   save();
-  if (!wasLow && isLow(p)) toast(`⚠️ Lavt lager: ${p.name}`);
+  if (!wasLow && isLow(p) && p.important) toast(`⚠️ Må bestilles: ${p.name}`);
 }
 
 /* ---------- UI-infrastruktur ---------- */
@@ -272,7 +274,7 @@ async function scanIntoForm(form) {
 function setTitle(t) { $('#title').textContent = t; document.title = `${t} · Tår`; }
 
 function updateBadges() {
-  const low = lowProducts().length;
+  const low = urgentProducts().length;
   const b = $('#badge-low');
   b.hidden = !low;
   b.textContent = low;
@@ -347,6 +349,8 @@ function renderDashboard() {
   }
 
   const low = lowProducts().sort(sortByName);
+  const urgent = low.filter((p) => p.important);
+  const later = low.filter((p) => !p.important);
   const last = state.counts[state.counts.length - 1];
   const drinks = state.drinks.map((d) => pourPct(drinkCost(d), d.price)).filter((x) => x != null);
   const avgPct = drinks.length ? sum(drinks, (x) => x) / drinks.length : null;
@@ -367,8 +371,9 @@ function renderDashboard() {
     <div class="stats">
       <div class="stat"><div class="label">Lagerverdi</div><div class="value">${kr(totalValue())}</div></div>
       <div class="stat"><div class="label">Produkter</div><div class="value">${state.products.length}</div></div>
-      <a class="stat ${low.length ? 'alert' : ''}" href="#/lager" data-action="show-low" style="text-decoration:none;color:inherit">
-        <div class="label">Lavt lager</div><div class="value">${low.length}</div></a>
+      <a class="stat ${urgent.length ? 'alert' : ''}" href="#/lager" data-action="show-low" style="text-decoration:none;color:inherit">
+        <div class="label">Må bestilles</div><div class="value">${urgent.length}</div>
+        ${later.length ? `<div class="muted small">+${later.length} kan vente</div>` : ''}</a>
     </div>
 
     ${state.draft ? `
@@ -379,24 +384,26 @@ function renderDashboard() {
 
     <div class="card">
       <div class="card-head">
-        <h2>Lavt lager</h2>
-        ${low.length ? `<button class="btn small" data-action="copy-shopping">Kopier handleliste</button>` : ''}
+        <h2>Må bestilles</h2>
+        ${urgent.length ? `<button class="btn small" data-action="copy-shopping">Kopier handleliste</button>` : ''}
       </div>
-      ${low.length ? lowBySupplier().map(([sup, ps], i, all) => `
+      ${urgent.length ? lowBySupplier(urgent).map(([sup, ps], i, all) => `
         ${all.length > 1 || sup !== NO_SUPPLIER ? `
           <div class="supplier-head">
             <div class="group-label" style="margin:${i ? 14 : 2}px 4px 6px">${esc(sup)}</div>
             <button class="linkbtn small" data-action="copy-shopping" data-supplier="${esc(sup)}">Del</button>
           </div>` : ''}
-        <div class="list" style="margin:0">${ps.map((p) => `
-        <div class="row" data-action="open-product" data-id="${p.id}">
-          <div class="row-main">
-            <div class="row-title">${esc(p.name)}</div>
-            <div class="row-sub">Igjen: ${qtyLabel(p, p.stock)} · varsel ved ${qtyLabel(p, p.threshold)}</div>
-          </div>
-          <div class="row-end"><span class="tag low">Bestill ${orderQty(p)}</span></div>
-        </div>`).join('')}</div>`).join('')
-      : `<p class="muted" style="margin:0">Ingen varsler. ${state.products.some((p) => p.lowAlert) ? 'Alt er over grensen 👍' : 'Slå på «Varsle ved lavt lager» på produktene du vil følge med på.'}</p>`}
+        <div class="list" style="margin:0">${ps.map((p) => lowRow(p, true)).join('')}</div>`).join('')
+      : `<p class="muted" style="margin:0">${state.products.some((p) => p.important)
+        ? 'Ingen viktige produkter er under grensen 👍'
+        : 'Merk produktene som ikke må gå tomt med ☆, så dukker de opp her når de begynner å gå tomt.'}</p>`}
+
+      ${later.length ? `
+        <details class="later" ${laterOpen ? 'open' : ''}>
+          <summary>Kan vente <span class="muted">(${later.length})</span></summary>
+          <div class="list" style="margin:8px 0 0">${later.map((p) => lowRow(p, false)).join('')}</div>
+          <button class="btn small block" style="margin-top:10px" data-action="copy-shopping" data-all="1">Kopier hele listen (med «kan vente»)</button>
+        </details>` : ''}
     </div>
 
     <div class="card">
@@ -432,6 +439,21 @@ function renderDashboard() {
         <button class="btn block" data-action="export-json">Del / last ned backup</button>
       </div>` : ''}
   `;
+}
+
+let laterOpen = false;
+document.addEventListener('toggle', (e) => { if (e.target.classList?.contains('later')) laterOpen = e.target.open; }, true);
+
+function lowRow(p, urgent) {
+  return `
+    <div class="row" data-action="open-product" data-id="${p.id}">
+      ${STAR(p)}
+      <div class="row-main">
+        <div class="row-title">${esc(p.name)}</div>
+        <div class="row-sub">Igjen: ${qtyLabel(p, p.stock)} · varsel ved ${qtyLabel(p, p.threshold)}</div>
+      </div>
+      <div class="row-end"><span class="tag ${urgent ? 'low' : 'soft'}">Bestill ${orderQty(p)}</span></div>
+    </div>`;
 }
 
 function daysAgo(iso) {
@@ -485,8 +507,9 @@ function inventoryRow(p) {
   const sub = [isBottle(p) ? `${fmtNum(p.sizeCl)} cl` : 'stk', kr(p.cost)].join(' · ');
   return `
     <div class="row" data-action="open-product" data-id="${p.id}">
+      ${STAR(p)}
       <div class="row-main">
-        <div class="row-title">${esc(p.name)}${isLow(p) ? '<span class="tag low">Lavt</span>' : ''}</div>
+        <div class="row-title">${esc(p.name)}${isLow(p) ? `<span class="tag ${p.important ? 'low' : 'soft'}">Lavt</span>` : ''}</div>
         <div class="row-sub">${sub}${p.lowAlert ? ` · 🔔 ${fmtNum(p.threshold, p.threshold % 1 ? 1 : 0)}` : ''}</div>
       </div>
       <div class="stepper">
@@ -513,7 +536,7 @@ function openProduct(id) {
     <h2>${esc(p.name)}</h2>
     <div class="muted small">${[esc(p.category), isBottle(p) ? `${fmtNum(p.sizeCl)} cl flaske` : 'per stk', esc(p.supplier)].filter(Boolean).join(' · ')}</div>
     <div class="big-stock" style="margin-top:10px">${qtyLabel(p, p.stock)}
-      ${isLow(p) ? '<span class="tag low" style="font-size:.8rem">Lavt lager</span>' : ''}</div>
+      ${isLow(p) ? `<span class="tag ${p.important ? 'low' : 'soft'}" style="font-size:.8rem">${p.important ? 'Må bestilles' : 'Lavt – kan vente'}</span>` : ''}</div>
 
     <div class="kv">
       <div><span>Lagerverdi</span><b>${kr(productValue(p))}</b></div>
@@ -542,6 +565,7 @@ function openProduct(id) {
       </tbody></table>` : ''}
 
     <div class="btn-row">
+      <button class="btn ${p.important ? 'primary' : ''}" data-action="toggle-important" data-id="${p.id}">${p.important ? '★ Viktig' : '☆ Merk som viktig'}</button>
       <button class="btn" data-action="edit-product" data-id="${p.id}">Rediger produkt</button>
       ${p.cost > 0 ? '' : `<a class="btn" target="_blank" rel="noopener" href="${vmpUrl(p.name)}">Vinmonopolet ↗</a>`}
     </div>`);
@@ -555,7 +579,7 @@ const vmpUrl = (name) => `https://www.vinmonopolet.no/search?q=${encodeURICompon
 
 function productForm(p, draft = {}) {
   const isNew = !p;
-  const v = { name: '', category: 'Gin', unit: 'flaske', sizeCl: 70, cost: '', stock: 0, lowAlert: true, threshold: 1, par: 3,
+  const v = { name: '', category: 'Gin', unit: 'flaske', sizeCl: 70, cost: '', stock: 0, lowAlert: true, threshold: 0.3, par: 3, important: false,
     supplier: '', barcode: '', notes: '', ...(p || {}), ...draft };
   const unit = v.unit === 'stk' ? 'stk' : 'fl';
   openSheet(`
@@ -585,6 +609,7 @@ function productForm(p, draft = {}) {
         <div class="input-suffix"><input type="number" name="stock" inputmode="decimal" min="0" step="any" value="${v.stock}"><em class="unit-suffix">${unit}</em></div></label>
       <p class="hint bottle-only">Bruk desimaler for åpne flasker, f.eks. 2,4 = to fulle og en på 40 %.</p>
 
+      <label class="check"><input type="checkbox" name="important" ${v.important ? 'checked' : ''}> ★ Viktig – må ikke gå tomt</label>
       <label class="check"><input type="checkbox" name="lowAlert" ${v.lowAlert ? 'checked' : ''}> Varsle ved lavt lager</label>
       <div class="field-row alert-fields">
         <label class="field"><span>Varsle når ≤</span>
@@ -634,6 +659,7 @@ function readProductForm(form) {
     unit: f.unit.value,
     sizeCl: Math.max(1, num(f.sizeCl.value) || 70),
     cost: round2(Math.max(0, num(f.cost.value)) / (f.costInclVat.checked ? 1 + state.settings.vatPct / 100 : 1)),
+    important: f.important.checked,
     lowAlert: f.lowAlert.checked,
     threshold: Math.max(0, num(f.threshold.value)),
     par: Math.max(0, num(f.par.value)),
@@ -759,7 +785,12 @@ Fever-Tree Tonic; Mixer; stk; 14; 24" style="font-size:.9rem">${esc(prefill)}</t
       <label class="field"><span>Leverandør (valgfritt)</span>
         <input type="text" name="supplier" list="supplier-list-bulk" autocomplete="off" placeholder="Brukes når linjen ikke har leverandør">
         <datalist id="supplier-list-bulk">${suppliers().map((s) => `<option value="${esc(s)}">`).join('')}</datalist></label>
-      <label class="check"><input type="checkbox" name="lowAlert" checked> Varsle ved lavt lager (ved 1 igjen)</label>
+      <div class="field-row">
+        <label class="check" style="margin:0"><input type="checkbox" name="lowAlert" checked> Varsle ved lavt lager</label>
+        <label class="field" style="margin:0"><span>Varsle når ≤</span>
+          <div class="input-suffix"><input type="number" name="threshold" inputmode="decimal" min="0" step="any" value="0.3"><em>fl</em></div></label>
+      </div>
+      <label class="check"><input type="checkbox" name="important"> ★ Merk alle som viktige</label>
       <div class="calc" id="bulk-preview" style="display:block"></div>
       <div class="btn-row">
         <label class="btn" style="flex:0 0 auto">Velg fil<input type="file" accept=".csv,.txt,text/csv,text/plain" hidden id="bulk-file"></label>
@@ -798,9 +829,11 @@ function saveBulk(form) {
   const { items } = parseBulk(form.elements.text.value, bulkDefaults(form));
   if (!items.length) return;
   const lowAlert = form.elements.lowAlert.checked;
+  const important = form.elements.important.checked;
+  const threshold = Math.max(0, num(form.elements.threshold.value));
   const now = new Date().toISOString();
   for (const i of items) {
-    const p = { id: uid(), ...i, lowAlert, threshold: 1, par: 0, barcode: '', notes: '', createdAt: now };
+    const p = { id: uid(), ...i, lowAlert, important, threshold: i.unit === 'stk' ? Math.max(1, threshold) : threshold, par: 0, barcode: '', notes: '', createdAt: now };
     state.products.push(p);
     addLog(p, 'start', p.stock);
   }
@@ -1449,6 +1482,24 @@ function renderMore() {
     </div>
 
     <div class="card">
+      <h2>Varselgrenser</h2>
+      <p class="muted small" style="margin-top:0">Endre «varsle når ≤» for mange produkter på én gang. 0,3 betyr at du varsles når siste tredjedel av flasken gjenstår.</p>
+      <form data-form="thresholds">
+        <div class="field-row">
+          <label class="field"><span>Ny grense</span>
+            <div class="input-suffix"><input type="number" name="threshold" inputmode="decimal" min="0" step="any" value="0.3"><em>fl</em></div></label>
+          <label class="field"><span>Gjelder</span>
+            <select name="scope">
+              <option value="one">Alle med grense 1 i dag</option>
+              <option value="all">Alle flasker</option>
+              ${[...new Set(state.products.map((p) => p.category))].sort((x, y) => CATEGORIES.indexOf(x) - CATEGORIES.indexOf(y)).map((c) => `<option value="cat:${esc(c)}">Kategori: ${esc(c)}</option>`).join('')}
+            </select></label>
+        </div>
+        <button class="btn block">Oppdater grenser</button>
+      </form>
+    </div>
+
+    <div class="card">
       <h2>Backup og eksport</h2>
       <p class="muted small" style="margin-top:0">Alt lagres kun på denne enheten. Ta backup jevnlig, og bruk den samme filen for å flytte dataene til en ny telefon.
         ${s.lastBackup ? `Siste backup: ${fmtDate(s.lastBackup)}.` : ''}</p>
@@ -1544,18 +1595,18 @@ function exportCsv() {
     const s = typeof v === 'number' ? String(round2(v)).replace('.', ',') : String(v ?? '');
     return /[;"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
-  const head = ['Navn', 'Kategori', 'Leverandør', 'Strekkode', 'Enhet', 'Størrelse (cl)', 'Innkjøpspris', 'Beholdning', 'Verdi', 'Varsel på', 'Varsle ved', 'Bestill opp til', 'Bestill antall'];
+  const head = ['Navn', 'Kategori', 'Leverandør', 'Strekkode', 'Enhet', 'Størrelse (cl)', 'Innkjøpspris', 'Beholdning', 'Verdi', 'Varsel på', 'Varsle ved', 'Bestill opp til', 'Bestill antall', 'Viktig'];
   const rows = state.products.slice().sort(sortByName).map((p) => [
     p.name, p.category, p.supplier || '', p.barcode ? `\u2060${p.barcode}` : '', isBottle(p) ? 'flaske' : 'stk', isBottle(p) ? p.sizeCl : '', p.cost, p.stock,
-    productValue(p), p.lowAlert ? 'ja' : 'nei', p.threshold, p.par || '', isLow(p) ? orderQty(p) : '']);
+    productValue(p), p.lowAlert ? 'ja' : 'nei', p.threshold, p.par || '', isLow(p) ? orderQty(p) : '', p.important ? 'ja' : '']);
   const csv = '﻿' + [head, ...rows].map((r) => r.map(cell).join(';')).join('\r\n');
   shareFile(`tar-cocktails-lager-${today()}.csv`, csv, 'text/csv;charset=utf-8', 'Tår – lagerliste');
 }
 
 const NO_SUPPLIER = 'Uten leverandør';
-function lowBySupplier() {
+function lowBySupplier(list) {
   const groups = new Map();
-  for (const p of lowProducts().sort(sortByName)) {
+  for (const p of list.slice().sort(sortByName)) {
     const key = p.supplier || NO_SUPPLIER;
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(p);
@@ -1563,9 +1614,10 @@ function lowBySupplier() {
   return [...groups].sort(([a], [b]) => (a === NO_SUPPLIER) - (b === NO_SUPPLIER) || a.localeCompare(b, 'nb'));
 }
 
-function shoppingListText(onlySupplier) {
-  const groups = lowBySupplier().filter(([sup]) => !onlySupplier || sup === onlySupplier);
-  const line = (p) => `• ${p.name}: ${orderQty(p)} ${isBottle(p) ? 'fl' : 'stk'} (har ${qtyLabel(p, p.stock)})`;
+// Handlelisten tar med viktige produkter; includeAll tar også med «kan vente».
+function shoppingListText(onlySupplier, includeAll = false) {
+  const groups = lowBySupplier(includeAll ? lowProducts() : urgentProducts()).filter(([sup]) => !onlySupplier || sup === onlySupplier);
+  const line = (p) => `• ${p.name}: ${orderQty(p)} ${isBottle(p) ? 'fl' : 'stk'} (har ${qtyLabel(p, p.stock)})${includeAll && !p.important ? ' – kan vente' : ''}`;
   const title = `Bestilling${onlySupplier && onlySupplier !== NO_SUPPLIER ? ` – ${onlySupplier}` : ''} ${fmtDate(new Date().toISOString())}`;
   if (onlySupplier || (groups.length === 1 && groups[0][0] === NO_SUPPLIER)) {
     return `${title}\n${groups.flatMap(([, ps]) => ps.map(line)).join('\n')}`;
@@ -1593,6 +1645,7 @@ function loadDemo() {
     P('Soda', 'Mixer', 33, 8, 30, 12, 48, 'stk', 'Mixer-leverandør'),
   ];
   const by = (n) => prods.find((p) => p.name === n).id;
+  for (const n of ['Tanqueray London Dry', 'Campari', 'Aperol', 'Havana Club 3', 'Prosecco', 'Fever-Tree Tonic']) prods.find((p) => p.name === n).important = true;
   state.products.push(...prods);
   for (const p of prods) addLog(p, 'start', p.stock);
   state.drinks.push(
@@ -1614,6 +1667,14 @@ const actions = {
   'close-sheet': closeSheet,
   'new-product': () => productForm(),
   'bulk-add': () => bulkForm(),
+  'toggle-important': (el) => {
+    const p = product(el.dataset.id);
+    p.important = !p.important;
+    save();
+    toast(p.important ? `★ ${p.name} er merket som viktig` : `${p.name} er ikke lenger viktig`);
+    if (sheet.open && $('.sheet [data-action=edit-product]')) openProduct(p.id);
+    refreshCurrent();
+  },
   'new-product-code': (el) => productForm(null, { barcode: el.dataset.code }),
   'scan-product': scanToProduct,
   'scan-count': scanInCount,
@@ -1631,7 +1692,7 @@ const actions = {
     refreshCurrent();
   },
   'copy-shopping': async (el) => {
-    const text = shoppingListText(el.dataset.supplier);
+    const text = shoppingListText(el.dataset.supplier, !!el.dataset.all);
     try {
       if (navigator.share && matchMedia('(pointer: coarse)').matches) await navigator.share({ text });
       else { await navigator.clipboard.writeText(text); toast('Handleliste kopiert'); }
@@ -1750,6 +1811,17 @@ const forms = {
   },
   drink: saveDrink,
   settings: saveSettings,
+  thresholds: (form) => {
+    const t = Math.max(0, num(form.elements.threshold.value));
+    const scope = form.elements.scope.value;
+    const targets = state.products.filter((p) => isBottle(p) && (scope === 'all' || (scope === 'one' && p.threshold === 1) || scope === `cat:${p.category}`));
+    if (!targets.length) return toast('Ingen produkter passer');
+    if (!confirm(`Sette varselgrensen til ${fmtNum(t, 1)} fl for ${targets.length} produkter?`)) return;
+    for (const p of targets) p.threshold = t;
+    save();
+    toast(`Grensen er oppdatert for ${targets.length} produkter`);
+    render();
+  },
   sales: saveSales,
   move: (form, e) => {
     const p = product(form.dataset.id);

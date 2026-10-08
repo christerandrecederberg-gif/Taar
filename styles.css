@@ -328,3 +328,19 @@ button.chip { color: var(--text); }
 .price-help { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin: -4px 0 12px; }
 .price-help .check { margin: 0; font-size: .88rem; }
 .vmp-link { font-size: .88rem; white-space: nowrap; }
+
+/* Viktig-stjerne og «kan vente» */
+.star {
+  flex-shrink: 0; width: 34px; height: 34px; margin: 0 -4px 0 -6px; border: 0; border-radius: 50%;
+  background: transparent; color: var(--line); font-size: 1.35rem; line-height: 1; cursor: pointer;
+}
+.star.on { color: var(--peach); }
+.star:active { transform: scale(.9); }
+.tag.soft { background: var(--surface-2); color: var(--muted); }
+details.later { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 10px; }
+details.later summary {
+  cursor: pointer; list-style: none; font-family: var(--font-display); font-weight: 600; font-size: 1.15rem; color: var(--muted);
+}
+details.later summary::-webkit-details-marker { display: none; }
+details.later summary::before { content: '›'; display: inline-block; width: 1em; transition: transform .15s; }
+details.later[open] summary::before { transform: rotate(90deg); }
