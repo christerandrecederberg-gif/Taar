@@ -13,6 +13,7 @@ En enkel inventar-app for baren, inspirert av Backbar. Den er laget for mobil og
 - **Faktisk pour cost**: legg inn salget for perioden mellom to tellinger. Appen viser faktisk pour cost (forbruk ÷ salg eks. mva) mot teoretisk (oppskrifter) og avviket per produkt, altså svinn og overpouring.
 - **Pour cost**: drinker med oppskrift (cl per ingrediens) og utsalgspris. Appen viser varekost, pour cost i %, fortjeneste per drink og hvilken pris som gir målet ditt. Mva-sats og mål stiller du inn selv.
 - **Rapport per telling**: lagerverdi, forbruk, varemottak, faktisk pour cost og avvik for perioden. Deles som PDF (via utskrift → del) eller som kort tekst.
+- **Priser og mva**: innkjøpspriser skrives inn inkl. mva (kan endres under Mer). Med bryteren «Vis beløp inkl. mva» velger du om lagerverdi, forbruk og rapporter vises med eller uten mva. Pour cost regnes alltid eks. mva.
 - **Backup og deling**: backup (JSON) og lagerliste (CSV for Excel) deles rett via iPhones delingsmeny (AirDrop, e-post, Filer). På PC lastes filene ned.
 
 ## Kjøre lokalt

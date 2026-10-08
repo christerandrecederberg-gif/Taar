@@ -1,6 +1,6 @@
 // Offline-støtte. Henter nyeste versjon fra nett først (så oppdateringer vises med en gang),
 // og faller tilbake til lagret kopi når du er uten nett eller nettet er tregt.
-const VERSION = 'v10';
+const VERSION = 'v11';
 const CACHE = `taar-${VERSION}`;
 const ASSETS = ['./', './index.html', './styles.css', './app.js', './manifest.webmanifest', './icon.svg', './icon-192.png', './icon-512.png', './logo.svg', './vendor/zxing.min.js',
   './fonts/cormorant-garamond-latin-500-normal.woff2', './fonts/cormorant-garamond-latin-600-normal.woff2',
