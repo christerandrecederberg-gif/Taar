@@ -7,9 +7,9 @@
 
 // Nøkkelen beholdes uendret slik at eksisterende data ikke forsvinner.
 const STORAGE_KEY = 'taar.data.v1';
-const APP_VERSION = '9';
+const APP_VERSION = '10';
 const CATEGORIES = [
-  'Vodka', 'Gin', 'Rom', 'Whisky', 'Tequila/Mezcal', 'Cognac/Brandy', 'Likør',
+  'Vodka', 'Gin', 'Rom', 'Whisky', 'Tequila/Mezcal', 'Cognac/Brandy', 'Akevitt', 'Likør',
   'Bitter/Amaro', 'Vermut/Aperitiff', 'Vin', 'Musserende', 'Øl/Cider', 'Sirup', 'Mixer', 'Annet',
 ];
 const LOG_TYPES = {
@@ -285,11 +285,13 @@ function updateBadges() {
   }
 }
 
+// includeAll = filtervalg: alle kategorier vises alltid, med antall produkter i parentes.
 function categoryOptions(selected, includeAll) {
-  const used = new Set(state.products.map((p) => p.category));
-  const cats = includeAll ? CATEGORIES.filter((c) => used.has(c)) : CATEGORIES;
-  return (includeAll ? `<option value="">Alle kategorier</option>` : '') +
-    cats.map((c) => `<option ${c === selected ? 'selected' : ''}>${esc(c)}</option>`).join('');
+  if (!includeAll) return CATEGORIES.map((c) => `<option ${c === selected ? 'selected' : ''}>${esc(c)}</option>`).join('');
+  const counts = {};
+  for (const p of state.products) counts[p.category] = (counts[p.category] || 0) + 1;
+  return `<option value="">Alle kategorier</option>` +
+    CATEGORIES.map((c) => `<option value="${esc(c)}" ${c === selected ? 'selected' : ''}>${esc(c)} (${counts[c] || 0})</option>`).join('');
 }
 
 function groupByCategory(list) {
@@ -702,6 +704,7 @@ function saveProduct(form) {
    Én linje per produkt: Navn; Kategori; Størrelse; Innkjøpspris; Antall; Leverandør
    Bare navnet er påkrevd. Skilletegn kan være semikolon eller tabulator (lim inn fra Excel). */
 const CATEGORY_WORDS = [
+  ['Akevitt', /akevitt|aquavit|akvavit|\blinie\b|lysholm|gilde|l[øo]iten|arves[øo]lv|destillat[øo]rens|juleaq/i],
   ['Gin', /\bgin\b|genever|tanqueray|hendrick|bombay|beefeater|monkey 47|gordon/i],
   ['Vodka', /vodka|absolut|smirnoff|belvedere|grey goose|ketel one|finlandia/i],
   ['Rom', /\brum\b|\brom\b|rhum|havana|bacardi|diplomatico|plantation|kraken|appleton|zacapa|captain morgan/i],
@@ -1845,6 +1848,17 @@ document.addEventListener('submit', (e) => {
 });
 
 /* ---------- Oppstart ---------- */
+// Engangsflytting: akevitt som ble lagt under «Annet» før kategorien fantes.
+if (!state.settings.akevittMoved) {
+  let moved = 0;
+  for (const p of state.products) {
+    if (p.category === 'Annet' && guessCategory(p.name) === 'Akevitt') { p.category = 'Akevitt'; moved++; }
+  }
+  state.settings.akevittMoved = true;
+  save();
+  if (moved) setTimeout(() => toast(`${moved} akevitter er flyttet til den nye kategorien Akevitt`), 600);
+}
+
 if (!location.hash) history.replaceState(null, '', '#/oversikt');
 render();
 
