@@ -312,14 +312,16 @@ const routes = {
   mer: renderMore,
   historikk: renderHistory,
   logg: renderLog,
+  rapport: renderReport,
 };
-const tabFor = { historikk: 'mer', logg: 'mer' };
+const tabFor = { historikk: 'mer', logg: 'mer', rapport: 'mer' };
 
 function render() {
   const [name, arg] = location.hash.replace(/^#\/?/, '').split('/');
   const route = routes[name] ? name : 'oversikt';
   const tab = tabFor[route] || route;
   $$('.tabbar a').forEach((a) => a.classList.toggle('active', a.dataset.tab === tab));
+  document.body.classList.toggle('report-mode', route === 'rapport');
   routes[route](arg ? decodeURIComponent(arg) : undefined);
   updateBadges();
 }
@@ -401,7 +403,7 @@ function renderDashboard() {
         ${state.draft ? '' : `<a class="btn small" href="#/telling">Ny telling</a>`}</div>
       ${last ? `
         <p style="margin:0">${fmtDate(last.date)} · <b>${kr(last.value)}</b></p>
-        <p class="muted small" style="margin:.2rem 0 0">${daysAgo(last.date)} · <a href="#/historikk/${last.id}">Se forbruk</a></p>`
+        <p class="muted small" style="margin:.2rem 0 0">${daysAgo(last.date)} · <a href="#/historikk/${last.id}">Se forbruk</a> · <a href="#/rapport/${last.id}">Rapport</a></p>`
       : `<p class="muted" style="margin:0">Ingen tellinger enda.</p>`}
     </div>
 
@@ -420,7 +422,7 @@ function renderDashboard() {
       <div class="card">
         <h2>💾 Ta en backup</h2>
         <p class="muted small" style="margin-top:0">Dataene ligger kun på denne enheten. ${state.settings.lastBackup ? `Siste backup var ${fmtDate(state.settings.lastBackup)}.` : 'Du har ikke tatt backup enda.'}</p>
-        <button class="btn block" data-action="export-json">Last ned backup</button>
+        <button class="btn block" data-action="export-json">Del / last ned backup</button>
       </div>` : ''}
   `;
 }
@@ -875,6 +877,9 @@ function renderHistory(id) {
       </table></div>
     </div>
     <div class="btn-row">
+      <a class="btn primary" href="#/rapport/${c.id}">Rapport og deling</a>
+    </div>
+    <div class="btn-row">
       <a class="btn" href="#/historikk">Alle tellinger</a>
       <button class="btn danger" data-action="delete-count" data-id="${c.id}">Slett telling</button>
     </div>`;
@@ -1004,6 +1009,126 @@ function saveSales(form) {
   closeSheet();
   toast('Salg lagret');
   render();
+}
+
+/* ============================================================
+   RAPPORT PER TELLING (deles som PDF via utskrift, eller som tekst)
+   ============================================================ */
+function reportData(c) {
+  const idx = state.counts.indexOf(c);
+  const prev = state.counts[idx - 1];
+  const data = { c, prev, rows: [], totalUsed: 0, received: 0, pour: null, days: 0 };
+  if (prev) {
+    data.rows = periodUsage(c, prev);
+    data.totalUsed = sum(data.rows, (r) => r.usedValue);
+    data.received = sum(data.rows, (r) => r.received * r.cost);
+    data.pour = pourAnalysis(c, data.rows, data.totalUsed);
+    data.days = Math.max(1, Math.round((new Date(c.date) - new Date(prev.date)) / 864e5));
+  }
+  return data;
+}
+
+function renderReport(id) {
+  const c = state.counts.find((x) => x.id === id);
+  if (!c) { go('#/historikk'); return; }
+  setTitle('Rapport');
+  const { prev, rows, totalUsed, received, pour, days } = reportData(c);
+  const unit = (r) => (r.unit === 'stk' ? 'stk' : 'fl');
+  const q = (r, v) => `${fmtNum(v, r.unit === 'stk' ? 0 : 1)} ${unit(r)}`;
+  const used = rows.filter((r) => r.used !== 0 || r.received).sort((a, b) => b.usedValue - a.usedValue);
+  const groups = groupByCategory(c.items.map((i) => ({ ...i, category: i.category || 'Annet' })));
+
+  V.innerHTML = `
+    <div class="report-actions no-print">
+      <a class="btn" href="#/historikk/${c.id}">Tilbake</a>
+      <button class="btn" data-action="share-report-text" data-id="${c.id}">Del som tekst</button>
+      <button class="btn primary" data-action="print-report">Del som PDF</button>
+    </div>
+    <p class="hint no-print" style="margin:0 4px 12px">«Del som PDF» åpner utskrift. Trykk på dele-ikonet øverst der for å sende eller lagre rapporten som PDF.</p>
+
+    <article class="report">
+      <header class="report-head">
+        <div class="logo" role="img" aria-label="Tår"></div>
+        <div>
+          <div class="report-kicker">Tellingsrapport</div>
+          <h2 style="margin:0">${fmtDate(c.date)}</h2>
+          <div class="muted small">${prev ? `Periode ${fmtDate(prev.date)} – ${fmtDate(c.date)} (${days} ${days === 1 ? 'dag' : 'dager'})` : 'Første telling'}</div>
+        </div>
+      </header>
+
+      <section class="report-stats">
+        <div><span>Lagerverdi</span><b>${kr(c.value)}</b></div>
+        <div><span>Endring</span><b>${prev ? (c.value >= prev.value ? '+' : '') + kr(c.value - prev.value) : '–'}</b></div>
+        <div><span>Forbruk</span><b>${prev ? kr(totalUsed) : '–'}</b></div>
+        <div><span>Varemottak</span><b>${prev ? kr(received) : '–'}</b></div>
+        ${pour ? `
+          <div><span>Salg eks. mva</span><b>${kr(pour.revenueEx)}</b></div>
+          <div><span>Faktisk pour cost</span><b>${pour.actualPct == null ? '–' : fmtNum(pour.actualPct, 1) + ' %'}</b></div>
+          <div><span>Teoretisk pour cost</span><b>${pour.theoPct == null ? '–' : fmtNum(pour.theoPct, 1) + ' %'}</b></div>
+          <div><span>Avvik</span><b>${pour.soldCount ? (sum(pour.variance, (r) => r.diffValue) > 0 ? '+' : '') + kr(sum(pour.variance, (r) => r.diffValue)) : '–'}</b></div>` : ''}
+      </section>
+
+      ${prev ? `
+        <section>
+          <h3>Forbruk i perioden</h3>
+          <table>
+            <thead><tr><th>Produkt</th><th class="n">Inn</th><th class="n">Brukt</th><th class="n">Verdi</th></tr></thead>
+            <tbody>${used.map((r) => `
+              <tr><td>${esc(r.name)}</td><td class="n">${r.received ? q(r, r.received) : ''}</td>
+              <td class="n">${q(r, r.used)}</td><td class="n">${kr(r.usedValue)}</td></tr>`).join('') || '<tr><td colspan="4" class="muted">Ingen endringer.</td></tr>'}
+              <tr class="sum-row"><td>Sum</td><td></td><td></td><td class="n">${kr(totalUsed)}</td></tr>
+            </tbody>
+          </table>
+        </section>` : ''}
+
+      ${pour?.soldCount ? `
+        <section>
+          <h3>Avvik per produkt</h3>
+          <table>
+            <thead><tr><th>Produkt</th><th class="n">Forventet</th><th class="n">Brukt</th><th class="n">Avvik</th></tr></thead>
+            <tbody>${pour.variance.map((r) => `
+              <tr><td>${esc(r.name)}</td><td class="n">${q(r, r.expected)}</td><td class="n">${q(r, r.used)}</td>
+              <td class="n">${r.diffValue > 0 ? '+' : ''}${kr(r.diffValue)}</td></tr>`).join('')}
+            </tbody>
+          </table>
+          <p class="hint">Positivt avvik = mer brukt enn oppskriftene tilsier (svinn, overpouring, spanderte drinker eller salg som ikke er lagt inn).</p>
+        </section>` : ''}
+
+      <section>
+        <h3>Beholdning ved telling</h3>
+        <table>
+          <thead><tr><th>Produkt</th><th class="n">Antall</th><th class="n">Verdi</th></tr></thead>
+          ${groups.map(([cat, items]) => `
+            <tbody>
+              <tr class="cat-row"><td colspan="3">${esc(cat)}</td></tr>
+              ${items.map((i) => `<tr><td>${esc(i.name)}</td><td class="n">${q(i, i.qty)}</td><td class="n">${kr(i.qty * i.cost)}</td></tr>`).join('')}
+            </tbody>`).join('')}
+          <tbody><tr class="sum-row"><td>Sum</td><td></td><td class="n">${kr(c.value)}</td></tr></tbody>
+        </table>
+      </section>
+
+      <footer class="report-foot">Tår · Cocktails &amp; kaffe · laget ${fmtDateTime(new Date().toISOString())}</footer>
+    </article>`;
+}
+
+function reportText(c) {
+  const { prev, rows, totalUsed, pour, days } = reportData(c);
+  const lines = [`Tår – tellingsrapport ${fmtDate(c.date)}`];
+  if (prev) lines.push(`Periode: ${fmtDate(prev.date)} – ${fmtDate(c.date)} (${days} ${days === 1 ? 'dag' : 'dager'})`);
+  lines.push('', `Lagerverdi: ${kr(c.value)}`);
+  if (prev) {
+    lines.push(`Endring: ${c.value >= prev.value ? '+' : ''}${kr(c.value - prev.value)}`, `Forbruk: ${kr(totalUsed)}`);
+    if (pour) {
+      lines.push(`Salg eks. mva: ${kr(pour.revenueEx)}`);
+      if (pour.actualPct != null) lines.push(`Faktisk pour cost: ${fmtNum(pour.actualPct, 1)} %`);
+      if (pour.theoPct != null) lines.push(`Teoretisk pour cost: ${fmtNum(pour.theoPct, 1)} %`);
+    }
+    const top = rows.filter((r) => r.usedValue > 0).sort((a, b) => b.usedValue - a.usedValue).slice(0, 5);
+    if (top.length) lines.push('', 'Mest brukt:', ...top.map((r) => `• ${r.name}: ${fmtNum(r.used, 1)} ${r.unit === 'stk' ? 'stk' : 'fl'} (${kr(r.usedValue)})`));
+    const worst = (pour?.variance || []).filter((r) => r.diffValue > 0.5).slice(0, 5);
+    if (worst.length) lines.push('', 'Største avvik:', ...worst.map((r) => `• ${r.name}: +${kr(r.diffValue)}`));
+  }
+  return lines.join('\n');
 }
 
 function renderLog() {
@@ -1168,9 +1293,9 @@ function renderMore() {
       <p class="muted small" style="margin-top:0">Alt lagres kun på denne enheten. Ta backup jevnlig, og bruk den samme filen for å flytte dataene til en ny telefon.
         ${s.lastBackup ? `Siste backup: ${fmtDate(s.lastBackup)}.` : ''}</p>
       <div class="grid2">
-        <button class="btn" data-action="export-json">Last ned backup</button>
+        <button class="btn" data-action="export-json">Del backup</button>
         <button class="btn" data-action="import-json">Gjenopprett backup</button>
-        <button class="btn" data-action="export-csv">Eksporter lager (CSV)</button>
+        <button class="btn" data-action="export-csv">Del lagerliste (Excel)</button>
         <button class="btn danger" data-action="reset">Slett alle data</button>
       </div>
       <input type="file" id="import-file" accept="application/json,.json" hidden>
@@ -1207,12 +1332,29 @@ function download(filename, content, type) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 const today = () => new Date().toISOString().slice(0, 10);
+const isTouch = () => matchMedia('(pointer: coarse)').matches;
 
-function exportJson() {
+// På telefonen åpnes delingsmenyen (AirDrop, e-post, Filer …); ellers lastes filen ned.
+async function shareFile(filename, content, type, title) {
+  const file = new File([content], filename, { type });
+  if (isTouch() && navigator.canShare?.({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file], title });
+      return 'shared';
+    } catch (e) {
+      if (e.name === 'AbortError') return 'cancelled';
+    }
+  }
+  download(filename, content, type);
+  return 'downloaded';
+}
+
+async function exportJson() {
+  const result = await shareFile(`tar-cocktails-backup-${today()}.json`, JSON.stringify(state, null, 2), 'application/json', 'Tår – backup');
+  if (result === 'cancelled') return;
   state.settings.lastBackup = new Date().toISOString();
   save();
-  download(`tar-cocktails-backup-${today()}.json`, JSON.stringify(state, null, 2), 'application/json');
-  toast('Backup lastet ned');
+  toast(result === 'shared' ? 'Backup delt' : 'Backup lastet ned');
   render();
 }
 
@@ -1247,7 +1389,7 @@ function exportCsv() {
     p.name, p.category, p.supplier || '', p.barcode ? `\u2060${p.barcode}` : '', isBottle(p) ? 'flaske' : 'stk', isBottle(p) ? p.sizeCl : '', p.cost, p.stock,
     productValue(p), p.lowAlert ? 'ja' : 'nei', p.threshold, p.par || '', isLow(p) ? orderQty(p) : '']);
   const csv = '﻿' + [head, ...rows].map((r) => r.map(cell).join(';')).join('\r\n');
-  download(`tar-cocktails-lager-${today()}.csv`, csv, 'text/csv;charset=utf-8');
+  shareFile(`tar-cocktails-lager-${today()}.csv`, csv, 'text/csv;charset=utf-8', 'Tår – lagerliste');
 }
 
 const NO_SUPPLIER = 'Uten leverandør';
@@ -1401,6 +1543,16 @@ const actions = {
     updateDrinkCalc(form);
   },
 
+  'print-report': () => window.print(),
+  'share-report-text': async (el) => {
+    const text = reportText(state.counts.find((c) => c.id === el.dataset.id));
+    try {
+      if (navigator.share && isTouch()) await navigator.share({ title: 'Tår – tellingsrapport', text });
+      else { await navigator.clipboard.writeText(text); toast('Rapporten er kopiert'); }
+    } catch (e) {
+      if (e.name !== 'AbortError') prompt('Kopier rapporten:', text);
+    }
+  },
   'export-json': exportJson,
   'import-json': () => $('#import-file').click(),
   'export-csv': exportCsv,

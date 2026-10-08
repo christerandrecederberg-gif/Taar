@@ -288,3 +288,38 @@ button.chip { color: var(--text); }
 /* Leverandørgrupper på oversikten */
 .supplier-head { display: flex; align-items: baseline; justify-content: space-between; }
 .supplier-head .linkbtn { padding: 4px 6px; }
+
+/* Rapport per telling */
+.report-actions { display: flex; gap: 8px; margin-bottom: 8px; }
+.report-actions .btn { flex: 1; padding: 0 10px; }
+.report {
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 20px 16px;
+}
+.report-head { display: flex; align-items: center; gap: 16px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+.report-head .logo { width: 84px; flex-shrink: 0; }
+.report-kicker { font-family: var(--font-display); font-weight: 600; font-size: .8rem; text-transform: uppercase; letter-spacing: .3em; color: var(--muted); }
+.report-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 14px 0 4px; }
+.report-stats div { background: var(--surface-2); border-radius: 10px; padding: 8px 10px; }
+.report-stats span { display: block; font-size: .66rem; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); }
+.report-stats b { font-weight: 600; font-variant-numeric: tabular-nums; }
+.report section { break-inside: auto; }
+.report table { font-size: .85rem; }
+.report .sum-row td { font-weight: 600; border-top: 2px solid var(--line); }
+.report .cat-row td {
+  font-family: var(--font-display); font-weight: 600; font-size: .78rem; text-transform: uppercase;
+  letter-spacing: .25em; color: var(--muted); padding-top: 14px;
+}
+.report-foot { margin-top: 18px; padding-top: 10px; border-top: 1px solid var(--line); text-align: center; font-family: var(--font-text); font-style: italic; font-weight: 300; font-size: .85rem; color: var(--muted); }
+
+@media print {
+  @page { margin: 14mm; }
+  body { background: #fff; padding: 0; }
+  .topbar, .tabbar, .fab, .toast, .no-print, #sheet { display: none !important; }
+  .view { max-width: none; padding: 0; }
+  .report { border: 0; padding: 0; border-radius: 0; }
+  .report-stats { grid-template-columns: repeat(4, 1fr); }
+  .report-stats div { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .report tr { break-inside: avoid; }
+  .report h3 { break-after: avoid; }
+}
