@@ -7,6 +7,7 @@
 
 // Nøkkelen beholdes uendret slik at eksisterende data ikke forsvinner.
 const STORAGE_KEY = 'taar.data.v1';
+const APP_VERSION = '9';
 const CATEGORIES = [
   'Vodka', 'Gin', 'Rom', 'Whisky', 'Tequila/Mezcal', 'Cognac/Brandy', 'Likør',
   'Bitter/Amaro', 'Vermut/Aperitiff', 'Vin', 'Musserende', 'Øl/Cider', 'Sirup', 'Mixer', 'Annet',
@@ -1516,7 +1517,8 @@ function renderMore() {
       <h2>Installer på telefonen</h2>
       <p class="muted small" style="margin:0"><b>iPhone:</b> Åpne i Safari → Del-knappen → «Legg til på Hjem-skjerm».<br>
         <b>Android:</b> Åpne i Chrome → menyen ⋮ → «Installer app».<br>Appen virker da offline som en vanlig app.</p>
-    </div>`;
+    </div>
+    <p class="muted small" style="text-align:center">Tår barlager · versjon ${APP_VERSION}</p>`;
 
   $('#import-file').addEventListener('change', importJson);
 }
@@ -1847,5 +1849,16 @@ if (!location.hash) history.replaceState(null, '', '#/oversikt');
 render();
 
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-  navigator.serviceWorker.register('sw.js').catch(() => {});
+  // Se etter ny versjon ved oppstart og hver gang appen åpnes igjen; last på nytt når den er klar.
+  const hadController = !!navigator.serviceWorker.controller;
+  let reloaded = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    // Ikke last på nytt mens du fyller ut noe (ark åpent eller felt i fokus); da kommer oppdateringen neste gang.
+    if (!hadController || reloaded || sheet.open || /INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName || '')) return;
+    reloaded = true;
+    location.reload();
+  });
+  navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then((reg) => {
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') reg.update().catch(() => {}); });
+  }).catch(() => {});
 }
