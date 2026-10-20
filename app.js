@@ -7,7 +7,7 @@
 
 // Nøkkelen beholdes uendret slik at eksisterende data ikke forsvinner.
 const STORAGE_KEY = 'taar.data.v1';
-const APP_VERSION = '12';
+const APP_VERSION = '13';
 const CATEGORIES = [
   'Vodka', 'Gin', 'Rom', 'Whisky', 'Tequila/Mezcal', 'Cognac/Brandy', 'Akevitt', 'Likør',
   'Bitter/Amaro', 'Vermut/Aperitiff', 'Vin', 'Musserende', 'Øl/Cider', 'Sirup', 'Mixer', 'Annet',
@@ -38,7 +38,7 @@ const sum = (arr, fn) => arr.reduce((a, x) => a + fn(x), 0);
 function defaultState() {
   return {
     version: 1,
-    settings: { vatPct: 25, pricesIncludeVat: true, targetPourCost: 20, lastBackup: null, costsInclVat: true, showInclVat: true },
+    settings: { vatPct: 25, pricesIncludeVat: true, targetPourCost: 20, lastBackup: null, costsInclVat: true, showInclVat: true, regularEveryDays: 14, fullEveryDays: 182 },
     products: [],
     drinks: [],
     counts: [],
@@ -86,6 +86,13 @@ const costPerCl = (p) => (isBottle(p) && p.sizeCl > 0 ? p.cost / p.sizeCl : 0);
 const isLow = (p) => !!p.lowAlert && p.stock <= p.threshold;
 const lowProducts = () => state.products.filter(isLow);
 const urgentProducts = () => lowProducts().filter((p) => p.important);
+// Merker en flaske kan ha, i hvilken som helst kombinasjon.
+const FLAGS = {
+  important: { icon: '★', label: 'Viktig', on: (p) => `★ ${p.name} er merket som viktig`, off: (p) => `${p.name} er ikke lenger viktig` },
+  regular: { icon: '↻', label: 'Jevnlig sjekk', on: (p) => `↻ ${p.name} er med i jevnlig sjekk`, off: (p) => `${p.name} er tatt ut av jevnlig sjekk` },
+  menu: { icon: '🍸', label: 'Meny', on: (p) => `🍸 ${p.name} er merket som meny-flaske`, off: (p) => `${p.name} er ikke lenger merket som meny` },
+};
+const flagIcons = (p) => [p.menu && '🍸', p.regular && '↻'].filter(Boolean).join(' ');
 const STAR = (p) => `<button class="star ${p.important ? 'on' : ''}" data-action="toggle-important" data-id="${p.id}" aria-label="${p.important ? 'Fjern viktig-markering' : 'Merk som viktig'}" aria-pressed="${!!p.important}">${p.important ? '★' : '☆'}</button>`;
 // Innkjøpspriser lagres slik de skrives (standard inkl. mva). exVat() brukes til pour cost,
 // shown() til visning etter bryteren «Vis beløp inkl. mva».
@@ -287,6 +294,17 @@ function updateVatToggle() {
   if (b) { b.textContent = vatLabel(); b.setAttribute('aria-pressed', String(!!state.settings.showInclVat)); }
 }
 
+function toggleFlag(id, flag, el) {
+  const p = product(id);
+  if (!p || !FLAGS[flag]) return;
+  p[flag] = !p[flag];
+  save();
+  toast(p[flag] ? FLAGS[flag].on(p) : FLAGS[flag].off(p));
+  if ($('#flag-list')) { updateFlagRow(p); return; } // Merk-siden oppdateres på stedet, så du ikke mister plassen
+  if (sheet.open && $('.sheet [data-action=edit-product]')) openProduct(p.id);
+  refreshCurrent();
+}
+
 function setTitle(t) { $('#title').textContent = t; document.title = `${t} · Tår`; }
 
 function updateBadges() {
@@ -333,8 +351,9 @@ const routes = {
   historikk: renderHistory,
   logg: renderLog,
   rapport: renderReport,
+  merk: renderFlags,
 };
-const tabFor = { historikk: 'mer', logg: 'mer', rapport: 'mer' };
+const tabFor = { historikk: 'mer', logg: 'mer', rapport: 'mer', merk: 'lager' };
 
 function render() {
   const [name, arg] = location.hash.replace(/^#\/?/, '').split('/');
@@ -370,15 +389,14 @@ function renderDashboard() {
   const low = lowProducts().sort(sortByName);
   const urgent = low.filter((p) => p.important);
   const later = low.filter((p) => !p.important);
-  const last = state.counts[state.counts.length - 1];
   const drinks = state.drinks.map((d) => pourPct(drinkCost(d), d.price)).filter((x) => x != null);
   const avgPct = drinks.length ? sum(drinks, (x) => x) / drinks.length : null;
   const overTarget = drinks.filter((x) => x > state.settings.targetPourCost).length;
   const latestActual = (() => {
     for (let i = state.counts.length - 1; i > 0; i--) {
       const c = state.counts[i];
-      if (!c.sales) continue;
-      const rows = periodUsage(c, state.counts[i - 1]);
+      if (!c.sales || !isFullCount(c) || !baselineCount(c)) continue;
+      const rows = periodUsage(c);
       return { c, a: pourAnalysis(c, rows, sum(rows, (r) => r.usedValue)) };
     }
     return null;
@@ -426,12 +444,9 @@ function renderDashboard() {
     </div>
 
     <div class="card">
-      <div class="card-head"><h2>Siste telling</h2>
-        ${state.draft ? '' : `<a class="btn small" href="#/telling">Ny telling</a>`}</div>
-      ${last ? `
-        <p style="margin:0">${fmtDate(last.date)} · <b>${kr(last.value)}</b></p>
-        <p class="muted small" style="margin:.2rem 0 0">${daysAgo(last.date)} · <a href="#/historikk/${last.id}">Se forbruk</a> · <a href="#/rapport/${last.id}">Rapport</a></p>`
-      : `<p class="muted" style="margin:0">Ingen tellinger enda.</p>`}
+      <div class="card-head"><h2>Tellinger</h2><a class="btn small" href="#/historikk">Historikk</a></div>
+      ${countReminder(false)}
+      ${countReminder(true)}
     </div>
 
     <div class="card">
@@ -475,6 +490,26 @@ function lowRow(p, urgent) {
     </div>`;
 }
 
+// Påminnelse for jevnlig sjekk / full telling på oversikten.
+function countReminder(full) {
+  const last = lastCountOf(full);
+  const every = full ? state.settings.fullEveryDays : state.settings.regularEveryDays;
+  const age = last ? Math.floor((Date.now() - new Date(last.date)) / 864e5) : null;
+  const due = age == null || age >= every;
+  const reg = regularProducts().length;
+  if (!full && !reg) {
+    return `<div class="reminder"><div class="row-main"><b>↻ Jevnlig sjekk</b>
+      <div class="muted small">Ingen flasker er merket ennå.</div></div><a class="btn small" href="#/merk">Merk flasker</a></div>`;
+  }
+  const when = last ? `Sist ${daysAgo(last.date).toLowerCase()} (${fmtDate(last.date)})` : 'Ikke gjort ennå';
+  const next = due ? '<span class="tag due">Tid for ny</span>' : `<span class="muted small">neste om ${every - age} ${every - age === 1 ? 'dag' : 'dager'}</span>`;
+  return `<div class="reminder ${due ? 'is-due' : ''}">
+      <div class="row-main"><b>${full ? 'Full telling' : '↻ Jevnlig sjekk'}</b> ${next}
+        <div class="muted small">${when}${last ? ` · <a href="#/rapport/${last.id}">Rapport</a>` : ''}</div></div>
+      ${state.draft ? '' : `<button class="btn small ${due ? 'primary' : ''}" data-action="count-start" data-type="${full ? 'full' : 'regular'}">Start</button>`}
+    </div>`;
+}
+
 function daysAgo(iso) {
   const d = Math.floor((Date.now() - new Date(iso)) / 864e5);
   return d <= 0 ? 'I dag' : d === 1 ? 'I går' : `${d} dager siden`;
@@ -483,7 +518,15 @@ function daysAgo(iso) {
 /* ============================================================
    LAGER
    ============================================================ */
-const invFilter = { q: '', cat: '', low: false, noPrice: false };
+const invFilter = { q: '', cat: '', show: '' };
+const SHOW_FILTERS = {
+  '': ['Vis alle', () => true],
+  low: ['Kun lavt lager', (p) => isLow(p)],
+  noPrice: ['Mangler pris', (p) => !(p.cost > 0)],
+  important: ['Kun ★ viktige', (p) => p.important],
+  regular: ['Kun ↻ jevnlig sjekk', (p) => p.regular],
+  menu: ['Kun 🍸 meny', (p) => p.menu],
+};
 
 function renderInventory() {
   setTitle('Lager');
@@ -491,9 +534,9 @@ function renderInventory() {
     <div class="toolbar">
       <input type="search" id="inv-q" placeholder="Søk produkt…" value="${esc(invFilter.q)}" autocomplete="off">
       <select id="inv-cat">${categoryOptions(invFilter.cat, true)}</select>
-      <label class="chip"><input type="checkbox" id="inv-low" ${invFilter.low ? 'checked' : ''}> Kun lavt</label>
-      <label class="chip"><input type="checkbox" id="inv-noprice" ${invFilter.noPrice ? 'checked' : ''}> Mangler pris</label>
+      <select id="inv-show" aria-label="Vis">${Object.entries(SHOW_FILTERS).map(([k, [label]]) => `<option value="${k}" ${k === invFilter.show ? 'selected' : ''}>${label}</option>`).join('')}</select>
       <button class="chip" data-action="scan-product">${SCAN_ICON} Skann</button>
+      <a class="chip" href="#/merk">★ ↻ 🍸 Merk flasker</a>
       <button class="chip" data-action="bulk-add">+ Legg til mange</button>
     </div>
     <div id="inv-summary" class="muted small" style="margin:0 4px 4px"></div>
@@ -501,8 +544,7 @@ function renderInventory() {
     <button class="fab" data-action="new-product" aria-label="Nytt produkt">+</button>`;
   $('#inv-q').addEventListener('input', (e) => { invFilter.q = e.target.value; renderInventoryList(); });
   $('#inv-cat').addEventListener('change', (e) => { invFilter.cat = e.target.value; renderInventoryList(); });
-  $('#inv-low').addEventListener('change', (e) => { invFilter.low = e.target.checked; renderInventoryList(); });
-  $('#inv-noprice').addEventListener('change', (e) => { invFilter.noPrice = e.target.checked; renderInventoryList(); });
+  $('#inv-show').addEventListener('change', (e) => { invFilter.show = e.target.value; renderInventoryList(); });
   renderInventoryList();
 }
 
@@ -510,7 +552,7 @@ function renderInventoryList() {
   const list = $('#inv-list');
   if (!list) return;
   const items = state.products.filter((p) =>
-    matchesQuery(p, invFilter.q) && (!invFilter.cat || p.category === invFilter.cat) && (!invFilter.low || isLow(p)) && (!invFilter.noPrice || !(p.cost > 0)));
+    matchesQuery(p, invFilter.q) && (!invFilter.cat || p.category === invFilter.cat) && (SHOW_FILTERS[invFilter.show] || SHOW_FILTERS[''])[1](p));
   $('#inv-summary').textContent = `${items.length} produkter · ${krc(sum(items, productValue))} ${vatLabel()}`;
   if (!items.length) {
     list.innerHTML = `<div class="card empty">${state.products.length ? 'Ingen treff.' :
@@ -529,7 +571,7 @@ function inventoryRow(p) {
       ${STAR(p)}
       <div class="row-main">
         <div class="row-title">${esc(p.name)}${isLow(p) ? `<span class="tag ${p.important ? 'low' : 'soft'}">Lavt</span>` : ''}</div>
-        <div class="row-sub">${sub}${p.lowAlert ? ` · 🔔 ${fmtNum(p.threshold, p.threshold % 1 ? 1 : 0)}` : ''}</div>
+        <div class="row-sub">${flagIcons(p) ? `${flagIcons(p)} · ` : ''}${sub}${p.lowAlert ? ` · 🔔 ${fmtNum(p.threshold, p.threshold % 1 ? 1 : 0)}` : ''}</div>
       </div>
       <div class="stepper">
         <button data-action="adj" data-id="${p.id}" data-d="-1" aria-label="Trekk fra én">−</button>
@@ -564,6 +606,10 @@ function openProduct(id) {
       <div><span>Bestill opp til</span><b>${p.par > 0 ? qtyLabel(p, p.par) : '–'}</b></div>
     </div>
 
+    <div class="flag-row">${Object.entries(FLAGS).map(([k, f]) => `
+      <button class="flag ${p[k] ? 'on' : ''}" data-action="toggle-flag" data-flag="${k}" data-id="${p.id}" aria-pressed="${!!p[k]}">${f.icon} ${f.label}</button>`).join('')}
+    </div>
+
     <form data-form="move" data-id="${p.id}">
       <label class="field"><span>Registrer bevegelse</span>
         <div class="input-suffix"><input type="number" name="amount" inputmode="decimal" step="${step}" min="0" value="1" required>
@@ -584,7 +630,6 @@ function openProduct(id) {
       </tbody></table>` : ''}
 
     <div class="btn-row">
-      <button class="btn ${p.important ? 'primary' : ''}" data-action="toggle-important" data-id="${p.id}">${p.important ? '★ Viktig' : '☆ Merk som viktig'}</button>
       <button class="btn" data-action="edit-product" data-id="${p.id}">Rediger produkt</button>
       ${p.cost > 0 ? '' : `<a class="btn" target="_blank" rel="noopener" href="${vmpUrl(p.name)}">Vinmonopolet ↗</a>`}
     </div>`);
@@ -598,7 +643,7 @@ const vmpUrl = (name) => `https://www.vinmonopolet.no/search?q=${encodeURICompon
 
 function productForm(p, draft = {}) {
   const isNew = !p;
-  const v = { name: '', category: 'Gin', unit: 'flaske', sizeCl: 70, cost: '', stock: 0, lowAlert: true, threshold: 0.3, par: 3, important: false,
+  const v = { name: '', category: 'Gin', unit: 'flaske', sizeCl: 70, cost: '', stock: 0, lowAlert: true, threshold: 0.3, par: 3, important: false, regular: false, menu: false,
     supplier: '', barcode: '', notes: '', ...(p || {}), ...draft };
   const unit = v.unit === 'stk' ? 'stk' : 'fl';
   openSheet(`
@@ -628,6 +673,8 @@ function productForm(p, draft = {}) {
       <p class="hint bottle-only">Bruk desimaler for åpne flasker, f.eks. 2,4 = to fulle og en på 40 %.</p>
 
       <label class="check"><input type="checkbox" name="important" ${v.important ? 'checked' : ''}> ★ Viktig – må ikke gå tomt</label>
+      <label class="check"><input type="checkbox" name="regular" ${v.regular ? 'checked' : ''}> ↻ Med i jevnlig sjekk</label>
+      <label class="check"><input type="checkbox" name="menu" ${v.menu ? 'checked' : ''}> 🍸 Brukes på cocktailmenyen</label>
       <label class="check"><input type="checkbox" name="lowAlert" ${v.lowAlert ? 'checked' : ''}> Varsle ved lavt lager</label>
       <div class="field-row alert-fields">
         <label class="field"><span>Varsle når ≤</span>
@@ -678,6 +725,8 @@ function readProductForm(form) {
     sizeCl: Math.max(1, num(f.sizeCl.value) || 70),
     cost: round2(Math.max(0, num(f.cost.value))),
     important: f.important.checked,
+    regular: f.regular.checked,
+    menu: f.menu.checked,
     lowAlert: f.lowAlert.checked,
     threshold: Math.max(0, num(f.threshold.value)),
     par: Math.max(0, num(f.par.value)),
@@ -810,6 +859,8 @@ Fever-Tree Tonic; Mixer; stk; 14; 24" style="font-size:.9rem">${esc(prefill)}</t
           <div class="input-suffix"><input type="number" name="threshold" inputmode="decimal" min="0" step="any" value="0.3"><em>fl</em></div></label>
       </div>
       <label class="check"><input type="checkbox" name="important"> ★ Merk alle som viktige</label>
+      <label class="check"><input type="checkbox" name="regular"> ↻ Ta alle med i jevnlig sjekk</label>
+      <label class="check"><input type="checkbox" name="menu"> 🍸 Merk alle som meny-flasker</label>
       <div class="calc" id="bulk-preview" style="display:block"></div>
       <div class="btn-row">
         <label class="btn" style="flex:0 0 auto">Velg fil<input type="file" accept=".csv,.txt,text/csv,text/plain" hidden id="bulk-file"></label>
@@ -849,10 +900,12 @@ function saveBulk(form) {
   if (!items.length) return;
   const lowAlert = form.elements.lowAlert.checked;
   const important = form.elements.important.checked;
+  const regular = form.elements.regular.checked;
+  const menu = form.elements.menu.checked;
   const threshold = Math.max(0, num(form.elements.threshold.value));
   const now = new Date().toISOString();
   for (const i of items) {
-    const p = { id: uid(), ...i, lowAlert, important, threshold: i.unit === 'stk' ? Math.max(1, threshold) : threshold, par: 0, barcode: '', notes: '', createdAt: now };
+    const p = { id: uid(), ...i, lowAlert, important, regular, menu, threshold: i.unit === 'stk' ? Math.max(1, threshold) : threshold, par: 0, barcode: '', notes: '', createdAt: now };
     state.products.push(p);
     addLog(p, 'start', p.stock);
   }
@@ -884,6 +937,27 @@ function deleteProduct(id) {
    ============================================================ */
 const countFilter = { q: '', cat: '' };
 
+// Tellingstyper: «full» (alle flasker) og «jevnlig» (bare flasker merket ↻ Jevnlig sjekk).
+// Tellinger fra før typene fantes regnes som fulle.
+const isFullCount = (c) => c.type !== 'regular';
+const countTypeLabel = (c) => (isFullCount(c) ? 'Full telling' : 'Jevnlig sjekk');
+const regularProducts = () => state.products.filter((p) => p.regular);
+const lastCountOf = (full) => [...state.counts].reverse().find((c) => isFullCount(c) === full);
+
+// Produktene som er med i tellingen som pågår.
+function draftProducts() {
+  if (!state.draft || state.draft.type !== 'regular') return state.products;
+  const ids = new Set(state.draft.ids || []);
+  return state.products.filter((p) => ids.has(p.id));
+}
+
+// Grunnlaget forbruket regnes fra: full telling → forrige fulle; jevnlig sjekk → forrige telling uansett type.
+function baselineCount(c) {
+  const idx = state.counts.indexOf(c);
+  for (let i = idx - 1; i >= 0; i--) if (!isFullCount(c) || isFullCount(state.counts[i])) return state.counts[i];
+  return null;
+}
+
 function draftItem(p) {
   const items = state.draft.items;
   if (!items[p.id]) {
@@ -897,15 +971,24 @@ function renderCount() {
   setTitle('Telling');
   if (!state.draft) {
     const recent = state.counts.slice(-5).reverse();
+    const reg = regularProducts().length;
+    const lastReg = lastCountOf(false);
+    const lastFull = lastCountOf(true);
     V.innerHTML = `
       <div class="card">
-        <h2>Ny telling</h2>
-        <p class="lead" style="margin-top:0">Gå gjennom hylla og registrer fulle flasker og åpne flasker i tideler.
-          Tallene er forhåndsutfylt med dagens beholdning, så du trenger bare å rette det som avviker.
-          Du kan ta pauser underveis, og fremdriften lagres automatisk.</p>
-        <button class="btn primary block" data-action="count-start" ${state.products.length ? '' : 'disabled'}>Start telling</button>
-        ${state.products.length ? '' : '<p class="hint" style="margin-top:8px">Legg til produkter først.</p>'}
+        <div class="card-head"><h2>↻ Jevnlig sjekk</h2><span class="muted small">hver ${fmtNum(state.settings.regularEveryDays)}. dag</span></div>
+        <p class="lead" style="margin-top:0">Bare flaskene du har merket for jevnlig sjekk (${reg}).
+          ${lastReg ? `Sist: ${fmtDate(lastReg.date)}.` : 'Ikke gjort ennå.'}</p>
+        ${reg ? `<button class="btn primary block" data-action="count-start" data-type="regular">Start jevnlig sjekk (${reg} flasker)</button>`
+          : `<a class="btn block" href="#/merk">Merk flasker for jevnlig sjekk først</a>`}
       </div>
+      <div class="card">
+        <div class="card-head"><h2>Full telling</h2><span class="muted small">hvert halvår</span></div>
+        <p class="lead" style="margin-top:0">Alle flaskene (${state.products.length}). Tallene er forhåndsutfylt, så du retter bare det som avviker.
+          ${lastFull ? `Sist: ${fmtDate(lastFull.date)}.` : 'Ikke gjort ennå.'}</p>
+        <button class="btn block" data-action="count-start" data-type="full" ${state.products.length ? '' : 'disabled'}>Start full telling</button>
+      </div>
+      <p class="hint" style="margin:0 4px 12px">Du kan ta pauser underveis – fremdriften lagres automatisk.</p>
       ${recent.length ? `
         <div class="group-label">Tidligere tellinger</div>
         <div class="list">${recent.map(countRow).join('')}</div>
@@ -925,13 +1008,14 @@ function renderCount() {
       <button class="btn small" data-action="count-cancel">Avbryt</button>
       <button class="btn small primary" data-action="count-finish">Fullfør</button>
     </div>`;
+  setTitle(state.draft.type === 'regular' ? 'Jevnlig sjekk' : 'Full telling');
   $('#cnt-q').addEventListener('input', (e) => { countFilter.q = e.target.value; renderCountList(); });
   $('#cnt-cat').addEventListener('change', (e) => { countFilter.cat = e.target.value; renderCountList(); });
   renderCountList();
 }
 
 function renderCountList() {
-  const items = state.products.filter((p) => matchesQuery(p, countFilter.q) && (!countFilter.cat || p.category === countFilter.cat));
+  const items = draftProducts().filter((p) => matchesQuery(p, countFilter.q) && (!countFilter.cat || p.category === countFilter.cat));
   $('#cnt-list').innerHTML = items.length ? groupByCategory(items).map(([cat, ps]) => `
     <div class="group-label">${esc(cat)}</div>
     <div class="list">${ps.map(countItemRow).join('')}</div>`).join('') : '<div class="card empty">Ingen treff.</div>';
@@ -981,8 +1065,9 @@ function updateCountRow(row, markDone = true) {
 }
 
 function updateCountProgress() {
-  const total = state.products.length;
-  const done = state.products.filter((p) => state.draft.items[p.id]?.done).length;
+  const scope = draftProducts();
+  const total = scope.length;
+  const done = scope.filter((p) => state.draft.items[p.id]?.done).length;
   $('#cnt-progress').textContent = `${done} av ${total} telt`;
   $('#cnt-bar').style.width = `${total ? (done / total) * 100 : 0}%`;
 }
@@ -1005,10 +1090,11 @@ V.addEventListener('input', (e) => {
 });
 
 function finishCount() {
-  const notDone = state.products.filter((p) => !state.draft.items[p.id]?.done);
+  const scope = draftProducts();
+  const notDone = scope.filter((p) => !state.draft.items[p.id]?.done);
   if (notDone.length && !confirm(`${notDone.length} produkter er ikke merket som telt.\nDe lagres med verdiene som står i listen. Fullføre likevel?`)) return;
   const date = new Date().toISOString();
-  const items = state.products.map((p) => {
+  const items = scope.map((p) => {
     const it = draftItem(p);
     const qty = Math.max(0, round1(it.full + it.open));
     const prev = p.stock;
@@ -1016,7 +1102,7 @@ function finishCount() {
     if (qty !== prev) addLog(p, 'telling', qty - prev);
     return { productId: p.id, name: p.name, category: p.category, unit: p.unit, cost: p.cost, qty, prev };
   });
-  const count = { id: uid(), date, startedAt: state.draft.startedAt, items, value: sum(items, (i) => i.qty * i.cost) };
+  const count = { id: uid(), type: state.draft.type === 'regular' ? 'regular' : 'full', date, startedAt: state.draft.startedAt, items, value: sum(items, (i) => i.qty * i.cost) };
   state.counts.push(count);
   state.draft = null;
   save();
@@ -1028,7 +1114,7 @@ function countRow(c) {
   return `
     <a class="row" href="#/historikk/${c.id}" style="color:inherit;text-decoration:none">
       <div class="row-main"><div class="row-title">${fmtDate(c.date)}</div>
-        <div class="row-sub">${c.items.length} produkter</div></div>
+        <div class="row-sub">${isFullCount(c) ? 'Full telling' : '↻ Jevnlig sjekk'} · ${c.items.length} ${c.items.length === 1 ? 'produkt' : 'produkter'}</div></div>
       <div class="row-end"><b>${krc(c.value)}</b></div>
     </a>`;
 }
@@ -1047,18 +1133,19 @@ function renderHistory(id) {
   const idx = state.counts.findIndex((c) => c.id === id);
   const c = state.counts[idx];
   if (!c) { go('#/historikk'); return; }
-  setTitle(`Telling ${fmtDate(c.date)}`);
-  const prev = state.counts[idx - 1];
+  setTitle(`${isFullCount(c) ? 'Telling' : 'Sjekk'} ${fmtDate(c.date)}`);
+  const prev = baselineCount(c);
 
   let usageHtml = '<p class="muted" style="margin:0">Forbruk beregnes fra og med neste telling (trenger to tellinger å sammenligne).</p>';
   let pourHtml = '';
   if (prev) {
-    const rows = periodUsage(c, prev).sort((a, b) => b.usedValue - a.usedValue);
+    const rows = periodUsage(c).sort((a, b) => b.usedValue - a.usedValue);
     const days = Math.max(1, Math.round((new Date(c.date) - new Date(prev.date)) / 864e5));
     const totalUsed = sum(rows, (r) => r.usedValue);
     const unitOf = (r) => (r.unit === 'stk' ? 'stk' : 'fl');
     usageHtml = `
-      <p style="margin:0 0 .6rem">Siden ${fmtDate(prev.date)} (${days} ${days === 1 ? 'dag' : 'dager'}): <b>${krc(totalUsed)}</b> i forbruk (${vatLabel()})</p>
+      <p style="margin:0 0 .6rem">${isFullCount(c) ? `Siden forrige fulle telling ${fmtDate(prev.date)}` : `Siden forrige telling ${fmtDate(prev.date)}`}
+        (${days} ${days === 1 ? 'dag' : 'dager'}): <b>${krc(totalUsed)}</b> i forbruk (${vatLabel()})</p>
       <div class="table-wrap"><table>
         <thead><tr><th>Produkt</th><th class="n">Inn</th><th class="n">Brukt</th><th class="n">Verdi</th></tr></thead>
         <tbody>${rows.filter((r) => r.used !== 0 || r.received).map((r) => `
@@ -1073,9 +1160,9 @@ function renderHistory(id) {
 
   V.innerHTML = `
     <div class="stats">
-      <div class="stat"><div class="label">Lagerverdi</div><div class="value">${krc(c.value)}</div><div class="muted small">${vatLabel()}</div></div>
-      <div class="stat"><div class="label">Produkter</div><div class="value">${c.items.length}</div></div>
-      <div class="stat"><div class="label">Endring</div><div class="value">${prev ? (c.value >= prev.value ? '+' : '') + krc(c.value - prev.value) : '–'}</div></div>
+      <div class="stat"><div class="label">${isFullCount(c) ? 'Lagerverdi' : 'Verdi telt'}</div><div class="value">${krc(c.value)}</div><div class="muted small">${vatLabel()}</div></div>
+      <div class="stat"><div class="label">Produkter</div><div class="value">${c.items.length}</div><div class="muted small">${countTypeLabel(c)}</div></div>
+      <div class="stat"><div class="label">Endring</div><div class="value">${prev && isFullCount(c) ? (c.value >= prev.value ? '+' : '') + krc(c.value - prev.value) : '–'}</div></div>
     </div>
     ${pourHtml}
     <div class="card"><h2>Forbruk</h2>${usageHtml}</div>
@@ -1097,20 +1184,34 @@ function renderHistory(id) {
     </div>`;
 }
 
-// Forbruk per produkt mellom to tellinger: forrige telling + varemottak − denne tellingen.
-function periodUsage(c, prev) {
-  const prevMap = new Map(prev.items.map((i) => [i.productId, i]));
-  return c.items.filter((i) => prevMap.has(i.productId)).map((i) => {
-    const received = sum(state.log.filter((l) => l.productId === i.productId && l.type === 'mottak' && l.date > prev.date && l.date <= c.date), (l) => l.delta);
-    const used = round1(prevMap.get(i.productId).qty + received - i.qty);
-    return { ...i, received, used, usedValue: used * i.cost };
-  });
+// Forbruk per produkt: forrige telling av flasken + varemottak − denne tellingen.
+// Full telling regnes mot forrige fulle telling; jevnlig sjekk mot forrige gang flasken ble telt.
+function periodUsage(c) {
+  const idx = state.counts.indexOf(c);
+  const rows = [];
+  for (const i of c.items) {
+    let base = null;
+    let baseItem = null;
+    for (let k = idx - 1; k >= 0 && !base; k--) {
+      const b = state.counts[k];
+      if (isFullCount(c) && !isFullCount(b)) continue;
+      baseItem = b.items.find((x) => x.productId === i.productId);
+      if (baseItem) base = b;
+    }
+    if (!base) continue;
+    const received = sum(state.log.filter((l) => l.productId === i.productId && l.type === 'mottak' && l.date > base.date && l.date <= c.date), (l) => l.delta);
+    const used = round1(baseItem.qty + received - i.qty);
+    rows.push({ ...i, received, used, usedValue: used * i.cost, baseDate: base.date });
+  }
+  return rows;
 }
 
 // Faktisk pour cost = forbruk fra tellingene ÷ salg eks. mva. Teoretisk = oppskriftskost for solgte drinker ÷ salg.
 function pourAnalysis(c, rows, totalUsed) {
   const s = c.sales;
   if (!s) return null;
+  const base = baselineCount(c);
+  if (!isFullCount(c) && base) rows = rows.filter((r) => r.baseDate === base.date);
   const sold = Object.entries(s.drinks || {}).map(([id, qty]) => ({ d: state.drinks.find((x) => x.id === id), qty }))
     .filter((x) => x.d && x.qty > 0);
   const drinkRevenueEx = sum(sold, (x) => priceExVat(x.d.price) * x.qty);
@@ -1137,7 +1238,7 @@ function pourAnalysis(c, rows, totalUsed) {
   return {
     revenueEx,
     soldCount: sum(sold, (x) => x.qty),
-    actualPct: revenueEx > 0 ? (exVat(totalUsed) / revenueEx) * 100 : null,
+    actualPct: isFullCount(c) && revenueEx > 0 ? (exVat(totalUsed) / revenueEx) * 100 : null,
     theoPct: drinkRevenueEx > 0 ? (theoCost / drinkRevenueEx) * 100 : null,
     theoCost,
     variance,
@@ -1149,8 +1250,8 @@ function actualPourCostCard(c, rows, totalUsed) {
   if (!a) {
     return `
       <div class="card">
-        <h2>Faktisk pour cost</h2>
-        <p class="lead" style="margin-top:0">Legg inn salget for perioden (fra kassasystemet), så sammenligner appen det med forbruket fra tellingene.
+        <h2>${isFullCount(c) ? 'Faktisk pour cost' : 'Avvik mot oppskrifter'}</h2>
+        <p class="lead" style="margin-top:0">${isFullCount(c) ? '' : 'Faktisk pour cost i % regnes bare på full telling, men avvik per flaske kan sjekkes her. '}Legg inn salget for perioden (fra kassasystemet), så sammenligner appen det med forbruket fra tellingene.
           Da ser du den faktiske pour costen og hvor mye som forsvinner i svinn og overpouring.</p>
         <button class="btn primary block" data-action="edit-sales" data-id="${c.id}">Legg inn salg</button>
       </div>`;
@@ -1159,12 +1260,12 @@ function actualPourCostCard(c, rows, totalUsed) {
   const fmtQ = (r, q) => `${fmtNum(q, 1)} ${r.unit === 'stk' ? 'stk' : 'fl'}`;
   return `
     <div class="card">
-      <div class="card-head"><h2>Faktisk pour cost</h2>
+      <div class="card-head"><h2>${isFullCount(c) ? 'Faktisk pour cost' : 'Avvik mot oppskrifter'}</h2>
         <button class="btn small" data-action="edit-sales" data-id="${c.id}">Endre salg</button></div>
       <div class="kv" style="margin-top:0">
         <div><span>Salg ${vatLabel()}</span><b>${krx(a.revenueEx)}</b></div>
         <div><span>Forbruk ${vatLabel()}</span><b>${krc(totalUsed)}</b></div>
-        <div><span>Faktisk</span>${pctBadge(a.actualPct)}</div>
+        <div><span>Faktisk</span>${isFullCount(c) ? pctBadge(a.actualPct) : '<b class="muted small">kun ved full telling</b>'}</div>
         <div><span>Teoretisk</span>${pctBadge(a.theoPct)}</div>
       </div>
       ${a.soldCount ? `
@@ -1185,7 +1286,7 @@ function actualPourCostCard(c, rows, totalUsed) {
 
 function salesForm(c) {
   const s = c.sales || { revenue: '', drinks: {} };
-  const prevDate = state.counts[state.counts.indexOf(c) - 1]?.date;
+  const prevDate = baselineCount(c)?.date;
   openSheet(`
     <h2>Salg i perioden</h2>
     <p class="lead" style="margin-top:0">${prevDate ? `${fmtDate(prevDate)} – ${fmtDate(c.date)}. ` : ''}Hent tallene fra kassasystemet.</p>
@@ -1227,11 +1328,10 @@ function saveSales(form) {
    RAPPORT PER TELLING (deles som PDF via utskrift, eller som tekst)
    ============================================================ */
 function reportData(c) {
-  const idx = state.counts.indexOf(c);
-  const prev = state.counts[idx - 1];
+  const prev = baselineCount(c);
   const data = { c, prev, rows: [], totalUsed: 0, received: 0, pour: null, days: 0 };
   if (prev) {
-    data.rows = periodUsage(c, prev);
+    data.rows = periodUsage(c);
     data.totalUsed = sum(data.rows, (r) => r.usedValue);
     data.received = sum(data.rows, (r) => r.received * r.cost); // rå, vises med krc
     data.pour = pourAnalysis(c, data.rows, data.totalUsed);
@@ -1262,15 +1362,15 @@ function renderReport(id) {
       <header class="report-head">
         <div class="logo" role="img" aria-label="Tår"></div>
         <div>
-          <div class="report-kicker">Tellingsrapport</div>
+          <div class="report-kicker">${isFullCount(c) ? 'Tellingsrapport' : 'Jevnlig sjekk'}</div>
           <h2 style="margin:0">${fmtDate(c.date)}</h2>
           <div class="muted small">${prev ? `Periode ${fmtDate(prev.date)} – ${fmtDate(c.date)} (${days} ${days === 1 ? 'dag' : 'dager'})` : 'Første telling'}</div>
         </div>
       </header>
 
       <section class="report-stats">
-        <div><span>Lagerverdi ${vatLabel()}</span><b>${krc(c.value)}</b></div>
-        <div><span>Endring</span><b>${prev ? (c.value >= prev.value ? '+' : '') + krc(c.value - prev.value) : '–'}</b></div>
+        <div><span>${isFullCount(c) ? 'Lagerverdi' : 'Verdi telte flasker'} ${vatLabel()}</span><b>${krc(c.value)}</b></div>
+        <div><span>Endring</span><b>${prev && isFullCount(c) ? (c.value >= prev.value ? '+' : '') + krc(c.value - prev.value) : '–'}</b></div>
         <div><span>Forbruk</span><b>${prev ? krc(totalUsed) : '–'}</b></div>
         <div><span>Varemottak</span><b>${prev ? krc(received) : '–'}</b></div>
         ${pour ? `
@@ -1325,11 +1425,12 @@ function renderReport(id) {
 
 function reportText(c) {
   const { prev, rows, totalUsed, pour, days } = reportData(c);
-  const lines = [`Tår – tellingsrapport ${fmtDate(c.date)}`];
+  const lines = [`Tår – ${isFullCount(c) ? 'tellingsrapport' : 'jevnlig sjekk'} ${fmtDate(c.date)}`];
   if (prev) lines.push(`Periode: ${fmtDate(prev.date)} – ${fmtDate(c.date)} (${days} ${days === 1 ? 'dag' : 'dager'})`);
   lines.push('', `Lagerverdi (${vatLabel()}): ${krc(c.value)}`);
   if (prev) {
-    lines.push(`Endring: ${c.value >= prev.value ? '+' : ''}${krc(c.value - prev.value)}`, `Forbruk: ${krc(totalUsed)}`);
+    if (isFullCount(c)) lines.push(`Endring: ${c.value >= prev.value ? '+' : ''}${krc(c.value - prev.value)}`);
+    lines.push(`Forbruk: ${krc(totalUsed)}`);
     if (pour) {
       lines.push(`Salg (${vatLabel()}): ${krx(pour.revenueEx)}`);
       if (pour.actualPct != null) lines.push(`Faktisk pour cost: ${fmtNum(pour.actualPct, 1)} %`);
@@ -1341,6 +1442,69 @@ function reportText(c) {
     if (worst.length) lines.push('', 'Største avvik:', ...worst.map((r) => `• ${r.name}: +${krx(r.diffValue)}`));
   }
   return lines.join('\n');
+}
+
+/* ============================================================
+   MERK FLASKER – ★ viktig, ↻ jevnlig sjekk, 🍸 meny for mange flasker på én side
+   ============================================================ */
+const flagFilter = { q: '', cat: '' };
+
+function renderFlags() {
+  setTitle('Merk flasker');
+  V.innerHTML = `
+    <div class="card">
+      <p class="lead" style="margin:0 0 10px">Trykk på merkene for å slå dem av og på. En flaske kan ha alle tre.</p>
+      <div class="flag-summary" id="flag-summary"></div>
+      <div class="btn-row" id="flag-shortcuts"></div>
+    </div>
+    <div class="toolbar">
+      <input type="search" id="flag-q" placeholder="Søk…" value="${esc(flagFilter.q)}" autocomplete="off">
+      <select id="flag-cat">${categoryOptions(flagFilter.cat, true)}</select>
+    </div>
+    <div id="flag-list"></div>`;
+  $('#flag-q').addEventListener('input', (e) => { flagFilter.q = e.target.value; renderFlagList(); });
+  $('#flag-cat').addEventListener('change', (e) => { flagFilter.cat = e.target.value; renderFlagList(); });
+  renderFlagList();
+}
+
+function renderFlagList() {
+  const items = state.products.filter((p) => matchesQuery(p, flagFilter.q) && (!flagFilter.cat || p.category === flagFilter.cat));
+  $('#flag-list').innerHTML = items.length ? groupByCategory(items).map(([cat, ps]) => `
+    <div class="group-label">${esc(cat)}</div>
+    <div class="list">${ps.map((p) => `
+      <div class="row flag-item" data-id="${p.id}" style="cursor:default">
+        <div class="row-main"><div class="row-title">${esc(p.name)}</div></div>
+        <div class="flag-btns">${Object.entries(FLAGS).map(([k, f]) => `
+          <button class="flag-btn ${p[k] ? 'on' : ''}" data-action="toggle-flag" data-flag="${k}" data-id="${p.id}" aria-pressed="${!!p[k]}" aria-label="${f.label}" title="${f.label}">${f.icon}</button>`).join('')}
+        </div>
+      </div>`).join('')}</div>`).join('') : '<div class="card empty">Ingen treff.</div>';
+  updateFlagSummary();
+}
+
+function updateFlagRow(p) {
+  const row = $(`.flag-item[data-id="${p.id}"]`);
+  if (row) {
+    for (const k of Object.keys(FLAGS)) {
+      const b = $(`[data-flag="${k}"]`, row);
+      b.classList.toggle('on', !!p[k]);
+      b.setAttribute('aria-pressed', String(!!p[k]));
+    }
+  }
+  updateFlagSummary();
+}
+
+function updateFlagSummary() {
+  const el = $('#flag-summary');
+  if (el) el.innerHTML = Object.entries(FLAGS).map(([k, f]) => `<span><b>${f.icon} ${state.products.filter((p) => p[k]).length}</b> ${f.label.toLowerCase()}</span>`).join('');
+  const sc = $('#flag-shortcuts');
+  if (!sc) return;
+  const menuCount = state.products.filter((p) => p.menu).length;
+  const toRegular = state.products.filter((p) => p.menu && !p.regular).length;
+  const toImportant = state.products.filter((p) => p.menu && !p.important).length;
+  sc.hidden = !menuCount;
+  sc.innerHTML = `
+    <button class="btn small" data-action="flag-bulk" data-bulk="menu>regular" ${toRegular ? '' : 'disabled'}>Alle 🍸 → ↻ jevnlig sjekk${toRegular ? ` (${toRegular})` : ''}</button>
+    <button class="btn small" data-action="flag-bulk" data-bulk="menu>important" ${toImportant ? '' : 'disabled'}>Alle 🍸 → ★ viktige${toImportant ? ` (${toImportant})` : ''}</button>`;
 }
 
 function renderLog() {
@@ -1487,7 +1651,7 @@ function renderMore() {
     </div>
 
     <div class="card">
-      <h2>Priser og mva</h2>
+      <h2>Innstillinger</h2>
       <form data-form="settings">
         <div class="field-row">
           <label class="field"><span>Mål for pour cost</span>
@@ -1496,6 +1660,12 @@ function renderMore() {
             <div class="input-suffix"><input type="number" name="vatPct" inputmode="decimal" min="0" max="100" step="any" value="${s.vatPct}"><em>%</em></div></label>
         </div>
         <label class="check"><input type="checkbox" name="showInclVat" ${s.showInclVat ? 'checked' : ''}> Vis alle beløp med mva</label>
+        <div class="field-row">
+          <label class="field"><span>↻ Jevnlig sjekk hver</span>
+            <div class="input-suffix"><input type="number" name="regularEveryDays" inputmode="numeric" min="1" step="1" value="${s.regularEveryDays}"><em>dag</em></div></label>
+          <label class="field"><span>Full telling hver</span>
+            <div class="input-suffix"><input type="number" name="fullEveryDays" inputmode="numeric" min="1" step="1" value="${s.fullEveryDays}"><em>dag</em></div></label>
+        </div>
         <p class="hint">Alle priser skrives inn med mva. Bryteren bestemmer bare hvordan beløpene vises – den finnes også øverst til høyre på hver side. Pour cost i % blir den samme uansett.</p>
         <button class="btn primary block">Lagre innstillinger</button>
       </form>
@@ -1548,6 +1718,8 @@ function saveSettings(form) {
     targetPourCost: Math.min(100, Math.max(1, num(f.targetPourCost.value) || 20)),
     vatPct: Math.min(100, Math.max(0, num(f.vatPct.value))),
     showInclVat: f.showInclVat.checked,
+    regularEveryDays: Math.max(1, Math.round(num(f.regularEveryDays.value)) || 14),
+    fullEveryDays: Math.max(1, Math.round(num(f.fullEveryDays.value)) || 182),
   });
   save();
   toast('Innstillinger lagret');
@@ -1616,10 +1788,10 @@ function exportCsv() {
     const s = typeof v === 'number' ? String(round2(v)).replace('.', ',') : String(v ?? '');
     return /[;"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
-  const head = ['Navn', 'Kategori', 'Leverandør', 'Strekkode', 'Enhet', 'Størrelse (cl)', `Innkjøpspris (${vatLabel()})`, 'Beholdning', `Verdi (${vatLabel()})`, 'Varsel på', 'Varsle ved', 'Bestill opp til', 'Bestill antall', 'Viktig'];
+  const head = ['Navn', 'Kategori', 'Leverandør', 'Strekkode', 'Enhet', 'Størrelse (cl)', `Innkjøpspris (${vatLabel()})`, 'Beholdning', `Verdi (${vatLabel()})`, 'Varsel på', 'Varsle ved', 'Bestill opp til', 'Bestill antall', 'Viktig', 'Jevnlig sjekk', 'Meny'];
   const rows = state.products.slice().sort(sortByName).map((p) => [
     p.name, p.category, p.supplier || '', p.barcode ? `\u2060${p.barcode}` : '', isBottle(p) ? 'flaske' : 'stk', isBottle(p) ? p.sizeCl : '', round2(shown(p.cost)), p.stock,
-    round2(shown(productValue(p))), p.lowAlert ? 'ja' : 'nei', p.threshold, p.par || '', isLow(p) ? orderQty(p) : '', p.important ? 'ja' : '']);
+    round2(shown(productValue(p))), p.lowAlert ? 'ja' : 'nei', p.threshold, p.par || '', isLow(p) ? orderQty(p) : '', p.important ? 'ja' : '', p.regular ? 'ja' : '', p.menu ? 'ja' : '']);
   const csv = '﻿' + [head, ...rows].map((r) => r.map(cell).join(';')).join('\r\n');
   shareFile(`tar-cocktails-lager-${today()}.csv`, csv, 'text/csv;charset=utf-8', 'Tår – lagerliste');
 }
@@ -1696,13 +1868,17 @@ const actions = {
     else if (sheet.open && $('.sheet [data-action=edit-product]')) openProduct($('.sheet [data-action=edit-product]').dataset.id);
     render();
   },
-  'toggle-important': (el) => {
-    const p = product(el.dataset.id);
-    p.important = !p.important;
+  'toggle-important': (el) => toggleFlag(el.dataset.id, 'important', el),
+  'toggle-flag': (el) => toggleFlag(el.dataset.id, el.dataset.flag, el),
+  'flag-bulk': (el) => {
+    const [from, to] = el.dataset.bulk.split('>');
+    const targets = state.products.filter((p) => p[from] && !p[to]);
+    if (!targets.length) return toast('Alle er allerede merket');
+    if (!confirm(`Merke ${targets.length} ${FLAGS[from].icon}-flasker som ${FLAGS[to].icon} ${FLAGS[to].label.toLowerCase()}?`)) return;
+    for (const p of targets) p[to] = true;
     save();
-    toast(p.important ? `★ ${p.name} er merket som viktig` : `${p.name} er ikke lenger viktig`);
-    if (sheet.open && $('.sheet [data-action=edit-product]')) openProduct(p.id);
-    refreshCurrent();
+    toast(`${targets.length} flasker er merket`);
+    render();
   },
   'new-product-code': (el) => productForm(null, { barcode: el.dataset.code }),
   'scan-product': scanToProduct,
@@ -1711,8 +1887,8 @@ const actions = {
   'open-product': (el) => openProduct(el.dataset.id),
   'edit-product': (el) => productForm(product(el.dataset.id)),
   'delete-product': (el) => deleteProduct(el.dataset.id),
-  'show-noprice': () => { Object.assign(invFilter, { q: '', cat: '', low: false, noPrice: true }); go('#/lager'); },
-  'show-low': (el, e) => { e.preventDefault(); invFilter.low = true; invFilter.noPrice = false; invFilter.q = ''; invFilter.cat = ''; go('#/lager'); },
+  'show-noprice': () => { Object.assign(invFilter, { q: '', cat: '', show: 'noPrice' }); go('#/lager'); },
+  'show-low': (el, e) => { e.preventDefault(); Object.assign(invFilter, { q: '', cat: '', show: 'low' }); go('#/lager'); },
   adj: (el) => {
     const p = product(el.dataset.id);
     const d = num(el.dataset.d);
@@ -1730,12 +1906,13 @@ const actions = {
     }
   },
 
-  'count-start': () => {
-    state.draft = { startedAt: new Date().toISOString(), items: {} };
+  'count-start': (el) => {
+    const regular = el.dataset.type === 'regular';
+    state.draft = { startedAt: new Date().toISOString(), items: {}, type: regular ? 'regular' : 'full', ids: regular ? regularProducts().map((p) => p.id) : undefined };
     countFilter.q = '';
     countFilter.cat = '';
     save();
-    render();
+    go('#/telling');
   },
   'count-cancel': () => {
     if (!confirm('Avbryte tellingen? Det du har registrert så langt forkastes.')) return;

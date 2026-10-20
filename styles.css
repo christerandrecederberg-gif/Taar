@@ -354,3 +354,27 @@ details.later[open] summary::before { transform: rotate(90deg); }
 .vat-toggle[aria-pressed="true"] { color: var(--brand); border-color: color-mix(in srgb, var(--brand) 35%, var(--line)); }
 @media print { .vat-toggle { display: none; } }
 .topbar h1 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Merker: ★ viktig, ↻ jevnlig sjekk, 🍸 meny */
+.flag-row { display: flex; gap: 6px; flex-wrap: wrap; margin: 4px 0 14px; }
+.flag {
+  min-height: 36px; padding: 0 12px; border-radius: 18px; border: 1px solid var(--line);
+  background: var(--surface); color: var(--muted); font-size: .85rem; cursor: pointer;
+}
+.flag.on { background: color-mix(in srgb, var(--brand) 10%, var(--surface)); border-color: var(--brand); color: var(--brand); font-weight: 600; }
+.flag-btns { display: flex; gap: 6px; flex-shrink: 0; }
+.flag-btn {
+  width: 42px; height: 42px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface);
+  font-size: 1.15rem; cursor: pointer; filter: grayscale(1); opacity: .35; color: var(--muted);
+}
+.flag-btn.on { filter: none; opacity: 1; border-color: var(--brand); background: color-mix(in srgb, var(--brand) 8%, var(--surface)); color: var(--peach); }
+.flag-btn[data-flag="regular"].on { color: var(--brand); font-weight: 700; }
+.flag-summary { display: flex; gap: 14px; flex-wrap: wrap; font-size: .9rem; color: var(--muted); }
+.flag-summary b { color: var(--text); }
+a.chip { text-decoration: none; color: var(--text); }
+.toolbar select#inv-show { flex: 0 1 170px; }
+
+/* Påminnelser for tellinger */
+.reminder { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); }
+.reminder:first-of-type { border-top: 0; padding-top: 0; }
+.tag.due { background: color-mix(in srgb, var(--peach) 25%, transparent); color: var(--clay); }

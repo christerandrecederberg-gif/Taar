@@ -6,8 +6,9 @@ En enkel inventar-app for baren, inspirert av Backbar. Den er laget for mobil og
 
 - **Lager**: produkter per kategori, med flaskestørrelse, innkjøpspris og beholdning. Med +/− justerer du raskt, og i produktkortet registrerer du varemottak eller svinn.
 - **Varsler om lavt lager**: du slår på varsel og setter en grense per produkt (standard 0,3 flaske). Produkter du merker med ★ Viktig havner under «Må bestilles» i rødt, og det er bare de som teller på app-ikonet. Resten havner under «Kan vente». Handlelisten tar med de viktige, og du kan velge å ta med alt. Under Mer kan du endre grensen for mange produkter på én gang.
-- **Telling**: du teller fulle flasker og åpne flasker i tideler med en glidebryter. Tellingen er forhåndsutfylt med dagens beholdning, og fremdriften lagres underveis.
-- **Forbruk**: mellom to tellinger beregnes forbruket per produkt slik: forrige telling + varemottak − ny telling. Du ser det både i antall og i kroner.
+- **Telling**: to typer. **↻ Jevnlig sjekk** teller bare flaskene du har merket for det (standard hver 14. dag), og **full telling** teller alle (standard hvert halvår). Oversikten minner deg på begge. Du teller fulle flasker og åpne flasker i tideler, tellingen er forhåndsutfylt, og fremdriften lagres underveis.
+- **Merker**: hver flaske kan ha ★ Viktig, ↻ Jevnlig sjekk og 🍸 Meny i hvilken som helst kombinasjon. Siden «Merk flasker» (under Lager) lar deg sette merkene for alle flaskene på ett sted, med snarveier som «alle 🍸 → ↻». Under Lager kan du filtrere på hvert merke.
+- **Forbruk**: forrige telling av flasken + varemottak − ny telling, i antall og kroner. Full telling regnes mot forrige fulle telling, jevnlig sjekk mot forrige gang flasken ble telt. Faktisk pour cost i % regnes bare på full telling; avvik per flaske også ved jevnlig sjekk.
 - **Leverandører**: hvert produkt kan ha en leverandør. Lavt lager og handlelisten grupperes etter leverandør, og hver gruppe kan deles for seg.
 - **Strekkodeskanning**: skann flasker med kameraet for å finne produktet, koble en strekkode til et produkt eller hoppe rett til produktet under telling. Koden kan også skrives inn for hånd.
 - **Faktisk pour cost**: legg inn salget for perioden mellom to tellinger. Appen viser faktisk pour cost (forbruk ÷ salg eks. mva) mot teoretisk (oppskrifter) og avviket per produkt, altså svinn og overpouring.
