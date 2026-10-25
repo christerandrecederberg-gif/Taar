@@ -7,10 +7,10 @@
 
 // Nøkkelen beholdes uendret slik at eksisterende data ikke forsvinner.
 const STORAGE_KEY = 'taar.data.v1';
-const APP_VERSION = '13';
+const APP_VERSION = '14';
 const CATEGORIES = [
   'Vodka', 'Gin', 'Rom', 'Whisky', 'Tequila/Mezcal', 'Cognac/Brandy', 'Akevitt', 'Likør',
-  'Bitter/Amaro', 'Vermut/Aperitiff', 'Vin', 'Musserende', 'Øl/Cider', 'Sirup', 'Mixer', 'Annet',
+  'Bitter/Amaro', 'Bitters', 'Vermut/Aperitiff', 'Vin', 'Musserende', 'Øl/Cider', 'Sirup', 'Mixer', 'Annet',
 ];
 const LOG_TYPES = {
   start: 'Opprettet',
@@ -767,7 +767,10 @@ function saveProduct(form) {
 /* ---------- Legg til mange produkter på én gang ----------
    Én linje per produkt: Navn; Kategori; Størrelse; Innkjøpspris; Antall; Leverandør
    Bare navnet er påkrevd. Skilletegn kan være semikolon eller tabulator (lim inn fra Excel). */
+// Cocktailbitters (dråper/dashes), ikke amaro/likør. «Amaro» i navnet går alltid til Bitter/Amaro.
+const BITTERS_RE = /\bbitters\b|angostura|peychaud|fee brothers|regans|scrappy'?s|bittermens|dr\.? ?adam|aphrodite bitter|brazilian bitter|boker'?s/i;
 const CATEGORY_WORDS = [
+  ['Bitters', BITTERS_RE],
   ['Akevitt', /akevitt|aquavit|akvavit|\blinie\b|lysholm|gilde|l[øo]iten|arves[øo]lv|destillat[øo]rens|juleaq/i],
   ['Gin', /\bgin\b|genever|tanqueray|hendrick|bombay|beefeater|monkey 47|gordon/i],
   ['Vodka', /vodka|absolut|smirnoff|belvedere|grey goose|ketel one|finlandia/i],
@@ -785,6 +788,7 @@ const CATEGORY_WORDS = [
   ['Mixer', /tonic|soda|ginger (ale|beer)|cola|fever[- ]tree|schweppes|juice|lemonade|sprite|farris|bris/i],
 ];
 function guessCategory(name) {
+  if (/amaro/i.test(name)) return 'Bitter/Amaro';
   return CATEGORY_WORDS.find(([, re]) => re.test(name))?.[0] || null;
 }
 function matchCategory(text) {
