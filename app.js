@@ -7,7 +7,7 @@
 
 // Nøkkelen beholdes uendret slik at eksisterende data ikke forsvinner.
 const STORAGE_KEY = 'taar.data.v1';
-const APP_VERSION = '15';
+const APP_VERSION = '16';
 const CATEGORIES = [
   'Vodka', 'Gin', 'Rom', 'Whisky', 'Tequila/Mezcal', 'Cognac/Brandy', 'Akevitt', 'Likør',
   'Bitter/Amaro', 'Bitters', 'Vermut/Aperitiff', 'Vin', 'Musserende', 'Øl/Cider', 'Sirup', 'Mixer', 'Annet',
@@ -538,6 +538,7 @@ function renderInventory() {
       <button class="chip" data-action="scan-product">${SCAN_ICON} Skann</button>
       <a class="chip" href="#/merk">★ ↻ 🍸 Merk flasker</a>
       <button class="chip" data-action="bulk-add">+ Legg til mange</button>
+      <button class="chip" data-action="receive-list">📦 Varemottak fra liste</button>
     </div>
     <div id="inv-summary" class="muted small" style="margin:0 4px 4px"></div>
     <div id="inv-list"></div>
@@ -924,6 +925,108 @@ function saveBulk(form) {
   invFilter.cat = '';
   invFilter.low = false;
   go('#/lager');
+}
+
+/* ---------- Varemottak fra liste (f.eks. fra en kvittering) ----------
+   Én linje per vare: Navn; Antall; Pris inkl. mva (pris er valgfri). Linjene kobles til
+   eksisterende flasker på navn; du ser og kan endre koblingen før noe lagres. */
+const normName = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+  .replace(/\b\d+([.,]\d+)?\s*(cl|ml|l|%|vol)\b/g, ' ').replace(/[^a-z0-9æøå]+/g, ' ').trim();
+
+function matchProduct(name) {
+  const n = normName(name);
+  if (!n) return null;
+  const all = state.products.map((p) => ({ p, k: normName(p.name) }));
+  const exact = all.find((x) => x.k === n);
+  if (exact) return exact.p;
+  const contains = all.filter((x) => x.k && (x.k.includes(n) || n.includes(x.k))).sort((a, b) => b.k.length - a.k.length);
+  if (contains.length) return contains[0].p;
+  const words = new Set(n.split(' '));
+  let best = null;
+  let bestScore = 0;
+  for (const x of all) {
+    const w = x.k.split(' ');
+    const common = w.filter((t) => words.has(t)).length;
+    const score = common / Math.max(words.size, w.length);
+    if (score > bestScore) { best = x.p; bestScore = score; }
+  }
+  return bestScore >= 0.5 ? best : null;
+}
+
+function parseReceive(text) {
+  return text.split(/\r?\n/).map((raw) => raw.replace(/^\s*(?:[•\-*–]|\d+[.)])\s+/, '').trim()).filter(Boolean).map((line) => {
+    const cols = line.split(/\t|;/).map((s) => s.trim());
+    return { name: cols[0], qty: Math.max(0, num(cols[1])) || 1, price: Math.max(0, num(cols[2])) };
+  }).filter((r) => r.name && !/^navn$/i.test(r.name));
+}
+
+function receiveForm() {
+  openSheet(`
+    <h2>Varemottak fra liste</h2>
+    <p class="lead" style="margin-top:0">Lim inn listen, én vare per linje. Sjekk koblingen før du lagrer.</p>
+    <form data-form="receive">
+      <label class="field"><span>Varer</span>
+        <textarea name="text" rows="6" placeholder="Tio Pepe; 1; 189
+Campari; 2; 299
+Angostura Aromatic Bitters; 1" style="font-size:.9rem"></textarea></label>
+      <p class="hint">Rekkefølge: <b>Navn; Antall; Pris inkl. mva</b>. Pris kan utelates – da beholdes prisen som står.</p>
+      <div id="recv-rows"></div>
+      <div class="btn-row"><button class="btn primary" id="recv-submit" disabled>Registrer varemottak</button></div>
+    </form>`, (root) => {
+    const form = $('form', root);
+    const draw = () => {
+      const rows = parseReceive(form.elements.text.value);
+      const opts = (sel) => `<option value="">Hopp over</option><option value="new" ${sel === 'new' ? 'selected' : ''}>+ Ny flaske</option>` +
+        groupByCategory([...state.products]).map(([cat, ps]) => `<optgroup label="${esc(cat)}">${ps.map((p) =>
+          `<option value="${p.id}" ${p.id === sel ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</optgroup>`).join('');
+      $('#recv-rows', root).innerHTML = rows.length ? `<div class="list">${rows.map((r, i) => {
+        const m = matchProduct(r.name);
+        return `
+          <div class="row recv-row" style="cursor:default;flex-wrap:wrap">
+            <div class="row-main"><div class="row-title" style="font-size:1.05rem">${esc(r.name)}</div>
+              <div class="row-sub">+${fmtNum(r.qty, r.qty % 1 ? 1 : 0)}${r.price ? ` · ${kr(r.price)} inkl. mva` : ''}</div></div>
+            <select name="map_${i}" style="flex:1 1 100%">${opts(m ? m.id : 'new')}</select>
+          </div>`;
+      }).join('')}</div>` : '';
+      $('#recv-submit', root).disabled = !rows.length;
+    };
+    form.elements.text.addEventListener('input', draw);
+    form.elements.text.focus();
+  });
+}
+
+function saveReceive(form) {
+  const rows = parseReceive(form.elements.text.value);
+  let received = 0;
+  let created = 0;
+  let priced = 0;
+  const now = new Date().toISOString();
+  rows.forEach((r, i) => {
+    const choice = form.elements[`map_${i}`]?.value;
+    if (!choice) return;
+    if (choice === 'new') {
+      const category = guessCategory(r.name) || 'Annet';
+      const unit = category === 'Mixer' || category === 'Øl/Cider' ? 'stk' : 'flaske';
+      const p = { id: uid(), name: r.name, category, unit, sizeCl: parseSizeCl((r.name.match(/\d+([.,]\d+)?\s*(cl|ml|l)\b/i) || [''])[0]) || 70,
+        cost: r.price, stock: round1(r.qty), lowAlert: true, threshold: 0.3, par: 0, supplier: '', barcode: '', notes: '', createdAt: now };
+      state.products.push(p);
+      addLog(p, 'mottak', p.stock);
+      created++;
+      return;
+    }
+    const p = product(choice);
+    if (!p) return;
+    p.stock = round1(p.stock + r.qty);
+    addLog(p, 'mottak', r.qty);
+    if (r.price && r.price !== p.cost) { p.cost = r.price; priced++; }
+    received++;
+  });
+  if (!received && !created) return toast('Ingen varer valgt');
+  save();
+  closeSheet();
+  toast([received && `${received} varemottak`, created && `${created} nye flasker`, priced && `${priced} nye priser`].filter(Boolean).join(' · '));
+  go('#/lager');
+  render();
 }
 
 function deleteProduct(id) {
@@ -1868,6 +1971,7 @@ const actions = {
   'close-sheet': closeSheet,
   'new-product': () => productForm(),
   'bulk-add': () => bulkForm(),
+  'receive-list': () => receiveForm(),
   'undo-move': (el) => {
     const l = state.log.find((x) => x.id === el.dataset.id);
     const p = l && product(l.productId);
@@ -2024,6 +2128,7 @@ document.addEventListener('click', (e) => {
 const forms = {
   product: saveProduct,
   bulk: saveBulk,
+  receive: saveReceive,
   'link-barcode': (form) => {
     const p = product(form.elements.productId.value);
     if (!p) return;
