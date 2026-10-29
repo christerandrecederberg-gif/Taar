@@ -7,7 +7,7 @@
 
 // Nøkkelen beholdes uendret slik at eksisterende data ikke forsvinner.
 const STORAGE_KEY = 'taar.data.v1';
-const APP_VERSION = '14';
+const APP_VERSION = '15';
 const CATEGORIES = [
   'Vodka', 'Gin', 'Rom', 'Whisky', 'Tequila/Mezcal', 'Cognac/Brandy', 'Akevitt', 'Likør',
   'Bitter/Amaro', 'Bitters', 'Vermut/Aperitiff', 'Vin', 'Musserende', 'Øl/Cider', 'Sirup', 'Mixer', 'Annet',
@@ -592,6 +592,9 @@ function openProduct(id) {
   if (!p) return;
   const usedIn = state.drinks.filter((d) => d.ingredients.some((i) => i.productId === id));
   const logs = state.log.filter((l) => l.productId === id).slice(-6).reverse();
+  // Siste bevegelse kan angres hvis det er mottak/svinn/justering og ingen telling av flasken er gjort etterpå.
+  const lastCounted = [...state.counts].reverse().find((c) => c.items.some((i) => i.productId === id))?.date || '';
+  const undoId = logs[0] && ['mottak', 'svinn', 'justering'].includes(logs[0].type) && logs[0].date > lastCounted ? logs[0].id : null;
   const step = isBottle(p) ? '0.1' : '1';
   openSheet(`
     <h2>${esc(p.name)}</h2>
@@ -626,7 +629,8 @@ function openProduct(id) {
     ${logs.length ? `<h3>Siste bevegelser</h3>
       <table><tbody>${logs.map((l) => `
         <tr><td>${fmtDateTime(l.date)}</td><td>${LOG_TYPES[l.type] || l.type}</td>
-        <td class="n">${l.delta > 0 ? '+' : ''}${fmtNum(l.delta, l.delta % 1 ? 1 : 0)}</td></tr>`).join('')}
+        <td class="n">${l.delta > 0 ? '+' : ''}${fmtNum(l.delta, l.delta % 1 ? 1 : 0)}</td>
+        <td class="n">${l.id === undoId ? `<button class="linkbtn small" data-action="undo-move" data-id="${l.id}">Angre</button>` : ''}</td></tr>`).join('')}
       </tbody></table>` : ''}
 
     <div class="btn-row">
@@ -1864,6 +1868,17 @@ const actions = {
   'close-sheet': closeSheet,
   'new-product': () => productForm(),
   'bulk-add': () => bulkForm(),
+  'undo-move': (el) => {
+    const l = state.log.find((x) => x.id === el.dataset.id);
+    const p = l && product(l.productId);
+    if (!p) return;
+    p.stock = Math.max(0, round1(p.stock - l.delta));
+    state.log = state.log.filter((x) => x !== l);
+    save();
+    toast(`Angret: ${LOG_TYPES[l.type] || l.type} ${l.delta > 0 ? '+' : ''}${fmtNum(l.delta, l.delta % 1 ? 1 : 0)} ${p.name}`);
+    openProduct(p.id);
+    refreshCurrent();
+  },
   'toggle-vat': () => {
     state.settings.showInclVat = !state.settings.showInclVat;
     save();
