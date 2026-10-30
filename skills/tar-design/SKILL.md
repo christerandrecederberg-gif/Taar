@@ -65,7 +65,7 @@ Filene ligger i `assets/logo/`. Versjonene som slutter på `-beskaaret` har inge
 - **Linjer:** tynne hårlinjer i blå eller lys taupe under overskrifter og mellom seksjoner. Unngå tykke rammer og kort med skygge.
 - **Signatur i bunntekst:** «TÅR /tɔːr/ — a sip» i kursiv Spectral, og eventuelt «KRISTIANSAND» i små, sperrede versaler.
 - **Tone:** Menyen er på norsk med en engelsk versjon. Skilt ut mot gaten er gjerne på engelsk. Teksten er kort, varm og presis. Eksempel: «Vi lager også gjerne klassikeren du elsker — bare spør.»
-- **Kontakt** brukes slik den står på menyen. Hvis du trenger e-post eller adresse og ikke er sikker, spør i stedet for å gjette.
+- **Kontakt:** e-post er **hei@taarbar.no**. Bruk den også i oppfordringer som «BESTILL BORD · HEI@TAARBAR.NO». Stedet skrives «POSEBYHAVEN · KRISTIANSAND», i små, sperrede versaler i taupe. Den første menyen fra designeren har den gamle adressen hei@taar.no. Ikke kopier den derfra. Spør hvis du trenger telefonnummer, åpningstider eller annen kontaktinformasjon.
 
 ## Dokumenter for de ansatte
 
