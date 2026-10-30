@@ -52,13 +52,13 @@ def render(pages):
 <tbody><tr class="ini"><td colspan="2">{html.escape(p['initials'])}</td>{'<td></td>' * len(COLUMNS)}</tr>{''.join(rows)}</tbody></table>
 <div class="foot">TÅR</div></section>""")
     css = """@page{size:A4 landscape;margin:10mm 11mm}
-*{box-sizing:border-box}body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:0}
+*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:0}
 .page{break-after:page;position:relative;height:189mm}.page:last-child{break-after:auto}
 h1{font-size:15pt;margin:0 0 1mm}.sub{font-size:8pt;margin:0}.leg{font-size:7pt;color:#555;margin:.5mm 0 2mm}
 table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:8pt}
 th,td{border:.5pt solid #b5b5b5;padding:0 3pt;vertical-align:middle}
-th{background:#e4e4e4;font-size:7pt;height:5.5mm}th.n,td.n{width:7mm;text-align:center}th.t,td.t{width:130mm;text-align:left}
-tr.z td{background:#ececec}tr.sec td{background:#d9d9d9;font-weight:bold;font-size:7pt;height:5.2mm}
+th{background:#d4d4d4;font-size:7pt;height:5.5mm}th.n,td.n{width:7mm;text-align:center}th.t,td.t{width:130mm;text-align:left}
+tr.z td{background:#e6e6e6}tr.sec td{background:#c4c4c4;font-weight:bold;font-size:7pt;height:5.2mm}
 tr.ini td{background:#f2f2f2;font-weight:bold;font-size:7pt;height:8mm}
 .foot{position:absolute;right:0;bottom:0;font-size:6.5pt;color:#888;font-weight:bold}"""
     return f'<!doctype html><meta charset="utf-8"><title>Tår sjekkliste</title><style>{css}</style>{"".join(body)}'
@@ -69,7 +69,7 @@ def main():
     pw = subprocess.run(["npm", "root", "-g"], capture_output=True, text=True).stdout.strip() + "/playwright/index.mjs"
     js = f"""import {{ chromium }} from '{pw}';
 const b = await chromium.launch(); const p = await b.newPage();
-await p.goto('file://{HTML}'); await p.pdf({{ path: '{PDF}', preferCSSPageSize: true }}); await b.close();"""
+await p.goto('file://{HTML}'); await p.pdf({{ path: '{PDF}', preferCSSPageSize: true, printBackground: true }}); await b.close();"""
     subprocess.run(["node", "--input-type=module", "-e", js], check=True)
     print(f"Lagret {PDF}")
 
