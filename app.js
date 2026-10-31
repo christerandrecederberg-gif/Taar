@@ -7,7 +7,7 @@
 
 // Nøkkelen beholdes uendret slik at eksisterende data ikke forsvinner.
 const STORAGE_KEY = 'taar.data.v1';
-const APP_VERSION = '17';
+const APP_VERSION = '18';
 const CATEGORIES = [
   'Vodka', 'Gin', 'Rom', 'Whisky', 'Tequila/Mezcal', 'Cognac/Brandy', 'Akevitt', 'Likør',
   'Bitter/Amaro', 'Bitters', 'Vermut/Aperitiff', 'Vin', 'Musserende', 'Øl/Cider', 'Sirup', 'Mixer', 'Annet',
@@ -1770,12 +1770,109 @@ function parseSpecs(text) {
     } else if (cur && cols[0]) {
       let unit = parseUnit(cols[2]);
       let amount = Math.max(0, num(cols[1]));
-      if (unit === 'ml') { unit = 'cl'; amount /= 10; }
+      if (unit === 'ml') { unit = 'cl'; amount = Math.round(amount * 100) / 1000; }
       if (amount > 0) cur.ingredients.push({ name: cols[0], amount, unit });
     }
   }
   return drinks.filter((d) => d.name);
 }
+
+// Tårs meny (specs fra Christer, oktober 2026). Fylles inn med knappen «Fyll inn Tår-menyen».
+const TAR_MENU_SPECS = `# Thai Basilikum; 1
+Tanqueray gin; 35; ml
+Patrón Blanco; 12,5; ml
+Italicus; 17,5; ml
+Simple syrup; 20; ml
+Malic acid; 1,3; g
+Thai basilikum; 2; g
+
+# Venezuela's ånd; 1
+Plantation 3 Stars; 25; ml
+Green Chartreuse; 15; ml
+Falernum; 15; ml
+Cinnamon bark syrup; 15; ml
+Sitronjuice; 15; ml
+Limejuice; 15; ml
+
+# Blomsten fra Jerez; 1
+Amontillado sherry; 45; ml
+Appleton rom; 15; ml
+Giffard Abricot du Roussillon; 7,5; ml
+Rich simple syrup 2:1; 15; ml
+Angostura bitters; 1; dash
+Sitronjuice; 22,5; ml
+
+# Te tid; 1
+Vodka (Darjeeling-infusert); 60; ml
+Honningsirup; 15; ml
+Sitronjuice; 15; ml
+
+# Christer's Margarita; 1
+José Cuervo tequila blanco; 40; ml
+Cointreau; 20; ml
+Klar jordbærsaft; 30; ml
+Agavesirup; 15; ml
+Limejuice; 30; ml
+Hellfire bitters; 3; dråper
+
+# Siste blomst; 1
+Mezcal; 20; ml
+St-Germain; 20; ml
+Bénédictine DOM; 20; ml
+Sitronjuice; 20; ml
+
+# Eksperimentet; 1
+Bulleit bourbon; 40; ml
+Cocchi Americano Bianco; 15; ml
+Tio Pepe; 10; ml
+Bénédictine DOM; 10; ml
+Simple syrup; 5; ml
+Angostura bitters; 1; dash
+Orange bitters; 1; dash
+Peychaud's bitters; 3; dash
+
+# Bivoks; 12
+Bulleit bourbon; 350; ml
+Bache-Gabrielsen VSOP; 350; ml
+Simple syrup; 150; g
+Vann; 115; g
+Angostura bitters; 4; g
+Peychaud's bitters; 2; g
+
+# Tiki; 1
+Saltoppløsning; 5; dråper
+Limejuice; 15; ml
+Honningsirup; 15; ml
+Pasjonsfruktpuré; 5; ml
+Falernum; 6,67; ml
+Hjemmelaget pimento dram; 1,67; ml
+Smith & Cross; 13,33; ml
+Plantation 3 Stars; 15; ml
+Mount Gay Black Barrel; 15; ml
+
+# Carajillo Old Fashioned; 1
+Rittenhouse Rye; 30; ml
+Cognac By Braastad Cocktail Edition; 30; ml
+Licor 43; 7,5; ml
+Lazzaroni Amaro; 5,63; ml
+Cynar; 0,94; ml
+Amaro Meletti; 0,94; ml
+
+# Negroni; 1
+Hendrick's gin; 30; ml
+Lillet Blanc; 30; ml
+Aperol; 30; ml
+
+# Floreale; 1
+Martini Floreale; 30; ml
+Earl Grey te-sirup 2:1; 30; ml
+Sitronjuice; 30; ml
+
+# Vibrante; 1
+Martini Vibrante; 40; ml
+Ananasjuice; 40; ml
+Limejuice; 30; ml
+Mintsirup 2:1; 15; ml`;
 
 function specsForm() {
   openSheet(`
@@ -1788,9 +1885,16 @@ Tanqueray gin; 320; g
 Italicus; 182; g
 Simple syrup; 235; g"></textarea></label>
       <div id="specs-preview"></div>
-      <div class="btn-row"><button class="btn primary" id="specs-submit" disabled>Importer</button></div>
+      <div class="btn-row">
+        <button type="button" class="btn" id="specs-tar">Fyll inn Tår-menyen</button>
+        <button class="btn primary" id="specs-submit" disabled>Importer</button>
+      </div>
     </form>`, (root) => {
     const form = $('form', root);
+    $('#specs-tar', root).addEventListener('click', () => {
+      form.elements.text.value = TAR_MENU_SPECS;
+      form.elements.text.dispatchEvent(new Event('input'));
+    });
     form.elements.text.addEventListener('input', () => {
       const drinks = parseSpecs(form.elements.text.value);
       $('#specs-preview', root).innerHTML = drinks.map((d) => {
