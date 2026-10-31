@@ -7,7 +7,7 @@
 
 // Nøkkelen beholdes uendret slik at eksisterende data ikke forsvinner.
 const STORAGE_KEY = 'taar.data.v1';
-const APP_VERSION = '19';
+const APP_VERSION = '20';
 const CATEGORIES = [
   'Vodka', 'Gin', 'Rom', 'Whisky', 'Tequila/Mezcal', 'Cognac/Brandy', 'Akevitt', 'Likør',
   'Bitter/Amaro', 'Bitters', 'Vermut/Aperitiff', 'Vin', 'Musserende', 'Øl/Cider', 'Sirup', 'Mixer', 'Annet',
@@ -1851,12 +1851,12 @@ Plantation 3 Stars; 15; ml
 Mount Gay Black Barrel; 15; ml
 
 # Carajillo Old Fashioned; 1; 189
-Rittenhouse Rye; 30; ml
-Cognac By Braastad Cocktail Edition; 30; ml
-Licor 43; 7,5; ml
-Lazzaroni Amaro; 5,63; ml
-Cynar; 0,94; ml
-Amaro Meletti; 0,94; ml
+Rittenhouse Rye; 24; ml
+Cognac By Braastad Cocktail Edition; 24; ml
+Licor 43; 6; ml
+Lazzaroni Amaro; 4,5; ml
+Cynar; 0,75; ml
+Amaro Meletti; 0,75; ml
 
 # Negroni; 1; 189
 Hendrick's gin; 30; ml
