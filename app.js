@@ -7,7 +7,7 @@
 
 // Nøkkelen beholdes uendret slik at eksisterende data ikke forsvinner.
 const STORAGE_KEY = 'taar.data.v1';
-const APP_VERSION = '18';
+const APP_VERSION = '19';
 const CATEGORIES = [
   'Vodka', 'Gin', 'Rom', 'Whisky', 'Tequila/Mezcal', 'Cognac/Brandy', 'Akevitt', 'Likør',
   'Bitter/Amaro', 'Bitters', 'Vermut/Aperitiff', 'Vin', 'Musserende', 'Øl/Cider', 'Sirup', 'Mixer', 'Annet',
@@ -1778,7 +1778,7 @@ function parseSpecs(text) {
 }
 
 // Tårs meny (specs fra Christer, oktober 2026). Fylles inn med knappen «Fyll inn Tår-menyen».
-const TAR_MENU_SPECS = `# Thai Basilikum; 1
+const TAR_MENU_SPECS = `# Thai Basilikum; 1; 189
 Tanqueray gin; 35; ml
 Patrón Blanco; 12,5; ml
 Italicus; 17,5; ml
@@ -1786,7 +1786,7 @@ Simple syrup; 20; ml
 Malic acid; 1,3; g
 Thai basilikum; 2; g
 
-# Venezuela's ånd; 1
+# Venezuela's ånd; 1; 189
 Plantation 3 Stars; 25; ml
 Green Chartreuse; 15; ml
 Falernum; 15; ml
@@ -1794,7 +1794,7 @@ Cinnamon bark syrup; 15; ml
 Sitronjuice; 15; ml
 Limejuice; 15; ml
 
-# Blomsten fra Jerez; 1
+# Blomsten fra Jerez; 1; 189
 Amontillado sherry; 45; ml
 Appleton rom; 15; ml
 Giffard Abricot du Roussillon; 7,5; ml
@@ -1802,12 +1802,12 @@ Rich simple syrup 2:1; 15; ml
 Angostura bitters; 1; dash
 Sitronjuice; 22,5; ml
 
-# Te tid; 1
+# Te tid; 1; 189
 Vodka (Darjeeling-infusert); 60; ml
 Honningsirup; 15; ml
 Sitronjuice; 15; ml
 
-# Christer's Margarita; 1
+# Christer's Margarita; 1; 189
 José Cuervo tequila blanco; 40; ml
 Cointreau; 20; ml
 Klar jordbærsaft; 30; ml
@@ -1815,13 +1815,13 @@ Agavesirup; 15; ml
 Limejuice; 30; ml
 Hellfire bitters; 3; dråper
 
-# Siste blomst; 1
+# Siste blomst; 1; 189
 Mezcal; 20; ml
 St-Germain; 20; ml
 Bénédictine DOM; 20; ml
 Sitronjuice; 20; ml
 
-# Eksperimentet; 1
+# Eksperimentet; 1; 189
 Bulleit bourbon; 40; ml
 Cocchi Americano Bianco; 15; ml
 Tio Pepe; 10; ml
@@ -1831,7 +1831,7 @@ Angostura bitters; 1; dash
 Orange bitters; 1; dash
 Peychaud's bitters; 3; dash
 
-# Bivoks; 12
+# Bivoks; 12; 189
 Bulleit bourbon; 350; ml
 Bache-Gabrielsen VSOP; 350; ml
 Simple syrup; 150; g
@@ -1839,7 +1839,7 @@ Vann; 115; g
 Angostura bitters; 4; g
 Peychaud's bitters; 2; g
 
-# Tiki; 1
+# Tiki; 1; 189
 Saltoppløsning; 5; dråper
 Limejuice; 15; ml
 Honningsirup; 15; ml
@@ -1850,7 +1850,7 @@ Smith & Cross; 13,33; ml
 Plantation 3 Stars; 15; ml
 Mount Gay Black Barrel; 15; ml
 
-# Carajillo Old Fashioned; 1
+# Carajillo Old Fashioned; 1; 189
 Rittenhouse Rye; 30; ml
 Cognac By Braastad Cocktail Edition; 30; ml
 Licor 43; 7,5; ml
@@ -1858,21 +1858,23 @@ Lazzaroni Amaro; 5,63; ml
 Cynar; 0,94; ml
 Amaro Meletti; 0,94; ml
 
-# Negroni; 1
+# Negroni; 1; 189
 Hendrick's gin; 30; ml
 Lillet Blanc; 30; ml
 Aperol; 30; ml
 
-# Floreale; 1
+# Floreale; 1; 129
 Martini Floreale; 30; ml
 Earl Grey te-sirup 2:1; 30; ml
 Sitronjuice; 30; ml
 
-# Vibrante; 1
+# Vibrante; 1; 129
 Martini Vibrante; 40; ml
 Ananasjuice; 40; ml
 Limejuice; 30; ml
-Mintsirup 2:1; 15; ml`;
+Mintsirup 2:1; 15; ml
+
+# Shakerato; 1; 59`;
 
 function specsForm() {
   openSheet(`
@@ -1917,8 +1919,10 @@ function saveSpecs(form) {
   let created = 0;
   let updated = 0;
   for (const d of drinks) {
-    const ingredients = d.ingredients.map((i) => ({ productId: matchProduct(i.name)?.id || '', name: i.name, amount: i.amount, unit: i.unit }));
     const existing = state.drinks.find((x) => x.name.toLowerCase() === d.name.toLowerCase());
+    // Behold flasker du har koblet for hånd tidligere (samme ingrediensnavn).
+    const kept = new Map((existing?.ingredients || []).filter((i) => i.name && i.productId && product(i.productId)).map((i) => [i.name.toLowerCase(), i.productId]));
+    const ingredients = d.ingredients.map((i) => ({ productId: kept.get(i.name.toLowerCase()) || matchProduct(i.name)?.id || '', name: i.name, amount: i.amount, unit: i.unit }));
     if (existing) {
       Object.assign(existing, { batch: d.batch, ingredients }, d.price ? { price: d.price } : {});
       updated++;
