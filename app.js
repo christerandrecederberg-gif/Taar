@@ -7,7 +7,7 @@
 
 // Nøkkelen beholdes uendret slik at eksisterende data ikke forsvinner.
 const STORAGE_KEY = 'taar.data.v1';
-const APP_VERSION = '16';
+const APP_VERSION = '17';
 const CATEGORIES = [
   'Vodka', 'Gin', 'Rom', 'Whisky', 'Tequila/Mezcal', 'Cognac/Brandy', 'Akevitt', 'Likør',
   'Bitter/Amaro', 'Bitters', 'Vermut/Aperitiff', 'Vin', 'Musserende', 'Øl/Cider', 'Sirup', 'Mixer', 'Annet',
@@ -108,12 +108,30 @@ const totalValue = () => sum(state.products, productValue);
 const orderQty = (p) => Math.max(0, Math.ceil((p.par > 0 ? p.par : p.threshold + 1) - p.stock));
 const sortByName = (a, b) => a.name.localeCompare(b.name, 'nb');
 
-function ingredientCost(ing) {
+// Oppskrifter kan angis i cl, gram, dash, dråper eller stk, og gjelde en hel batch.
+// Gram regnes om til cl med typisk tetthet (g/ml) for kategorien.
+const DENSITY = { 'Likør': 1.08, 'Bitter/Amaro': 1.05, 'Vermut/Aperitiff': 1.02, 'Vin': 0.99, 'Musserende': 0.99,
+  'Sirup': 1.3, 'Bitters': 0.98, 'Mixer': 1.03, 'Øl/Cider': 1.01, 'Annet': 1.0 };
+const densityOf = (p) => DENSITY[p?.category] ?? 0.95; // brennevin
+const ING_UNITS = { cl: 'cl', g: 'g', dash: 'dash', drop: 'dråper', stk: 'stk' };
+const ingUnit = (ing, p) => ing.unit || (p && !isBottle(p) ? 'stk' : 'cl');
+const batchOf = (d) => Math.max(1, num(d.batch) || 1);
+
+// Mengde av ingrediensen i produktets egen enhet (flasker eller stk), for hele oppskriften.
+function ingredientUnits(ing) {
   const p = product(ing.productId);
   if (!p) return 0;
-  return exVat(isBottle(p) ? ing.amount * costPerCl(p) : ing.amount * p.cost);
+  const u = ingUnit(ing, p);
+  if (!isBottle(p)) return u === 'stk' ? ing.amount : 0;
+  const cl = u === 'cl' ? ing.amount : u === 'g' ? ing.amount / (densityOf(p) * 10)
+    : u === 'dash' ? ing.amount * 0.08 : u === 'drop' ? ing.amount * 0.005 : u === 'stk' ? ing.amount * p.sizeCl : 0;
+  return p.sizeCl > 0 ? cl / p.sizeCl : 0;
 }
-const drinkCost = (d) => sum(d.ingredients, ingredientCost);
+function ingredientCost(ing) {
+  const p = product(ing.productId);
+  return p ? exVat(ingredientUnits(ing) * p.cost) : 0;
+}
+const drinkCost = (d) => sum(d.ingredients, ingredientCost) / batchOf(d);
 function priceExVat(price) {
   const s = state.settings;
   return s.pricesIncludeVat ? price / (1 + s.vatPct / 100) : price;
@@ -931,7 +949,7 @@ function saveBulk(form) {
    Én linje per vare: Navn; Antall; Pris inkl. mva (pris er valgfri). Linjene kobles til
    eksisterende flasker på navn; du ser og kan endre koblingen før noe lagres. */
 const normName = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
-  .replace(/\b\d+([.,]\d+)?\s*(cl|ml|l|%|vol)\b/g, ' ').replace(/[^a-z0-9æøå]+/g, ' ').trim();
+  .replace(/['’`´]/g, '').replace(/\b\d+([.,]\d+)?\s*(cl|ml|l|%|vol)\b/g, ' ').replace(/[^a-z0-9æøå]+/g, ' ').trim();
 
 function matchProduct(name) {
   const n = normName(name);
@@ -947,11 +965,31 @@ function matchProduct(name) {
   for (const x of all) {
     const w = x.k.split(' ');
     const common = w.filter((t) => words.has(t)).length;
-    const score = common / Math.max(words.size, w.length);
+    const score = common >= 2 ? common / Math.max(words.size, w.length) : 0; // minst to like ord
     if (score > bestScore) { best = x.p; bestScore = score; }
   }
-  return bestScore >= 0.5 ? best : null;
+  if (bestScore >= 0.5) return best;
+  // Et særegent ord (merkenavn) som bare én flaske har, f.eks. «Tanqueray». Generiske ord teller ikke,
+  // og ulike varianter (blanco/reposado, 3 stars/gran añejo …) gir ingen kobling.
+  const variants = (s) => s.split(' ').filter((t) => VARIANT_WORDS.has(t));
+  const nv = variants(n);
+  const distinct = [...words].filter((t) => t.length > 2 && !GENERIC_WORDS.has(t) && !VARIANT_WORDS.has(t) && !/^\d+$/.test(t));
+  for (const t of distinct) {
+    const hits = all.filter((x) => x.k.split(' ').includes(t));
+    if (hits.length !== 1) continue;
+    const pv = variants(hits[0].k);
+    if (nv.length && pv.length && !nv.some((v) => pv.includes(v))) return null;
+    if (nv.length && !pv.length) continue;
+    if (!nv.length && pv.length && /tequila|rum|rom|cognac|brandy/.test(hits[0].k + ' ' + n)) continue;
+    return hits[0].p;
+  }
+  return null;
 }
+const GENERIC_WORDS = new Set(['gin', 'rom', 'rum', 'vodka', 'tequila', 'mezcal', 'whisky', 'whiskey', 'bourbon', 'rye', 'cognac', 'brandy',
+  'likor', 'liqueur', 'liquor', 'licor', 'sirup', 'syrup', 'simple', 'rich', 'bitters', 'bitter', 'amaro', 'sherry', 'vermut', 'vermouth',
+  'the', 'and', 'with', 'london', 'dry', 'old', 'aged', 'premium', 'original', 'classic', 'juice', 'vann', 'water', 'infusert', 'ml', 'cl']);
+const VARIANT_WORDS = new Set(['blanco', 'plata', 'silver', 'reposado', 'anejo', 'extra', 'gold', 'oro', 'xo', 'vsop', 'vs', 'stars', 'star',
+  'white', 'black', 'dark', 'spiced', 'gran', 'joven', 'amontillado', 'fino', 'oloroso', 'manzanilla']);
 
 function parseReceive(text) {
   return text.split(/\r?\n/).map((raw) => raw.replace(/^\s*(?:[•\-*–]|\d+[.)])\s+/, '').trim()).filter(Boolean).map((line) => {
@@ -1032,10 +1070,10 @@ function saveReceive(form) {
 function deleteProduct(id) {
   const p = product(id);
   const usedIn = state.drinks.filter((d) => d.ingredients.some((i) => i.productId === id));
-  const msg = `Slette «${p.name}»?` + (usedIn.length ? `\n\nDen fjernes også fra: ${usedIn.map((d) => d.name).join(', ')}.` : '');
+  const msg = `Slette «${p.name}»?` + (usedIn.length ? `\n\nDen blir stående som «ikke i lager» i: ${usedIn.map((d) => d.name).join(', ')}.` : '');
   if (!confirm(msg)) return;
   state.products = state.products.filter((x) => x.id !== id);
-  for (const d of usedIn) d.ingredients = d.ingredients.filter((i) => i.productId !== id);
+  for (const d of usedIn) for (const i of d.ingredients) if (i.productId === id) { i.productId = ''; i.name = i.name || p.name; }
   if (state.draft) delete state.draft.items[id];
   save();
   closeSheet();
@@ -1113,6 +1151,7 @@ function renderCount() {
       <select id="cnt-cat">${categoryOptions(countFilter.cat, true)}</select>
       <button class="chip" data-action="scan-count">${SCAN_ICON} Skann</button>
     </div>
+    <div id="cnt-pre">${prebatchCard()}</div>
     <div id="cnt-list"></div>
     <div class="count-footer">
       <div class="progress"><span id="cnt-progress"></span><div class="bar"><i id="cnt-bar"></i></div></div>
@@ -1133,6 +1172,8 @@ function renderCountList() {
   updateCountProgress();
 }
 
+const preNote = (p) => { const u = prebatchUnits(p.id); return u > 0.004 ? ` · inkl. ${fmtNum(u, 2)} ${isBottle(p) ? 'fl' : 'stk'} i prebatch` : ''; };
+
 function countItemRow(p) {
   const it = draftItem(p);
   return `
@@ -1140,7 +1181,7 @@ function countItemRow(p) {
       <div class="count-head">
         <div class="row-main">
           <div class="row-title">${esc(p.name)}</div>
-          <div class="row-sub">Før: ${qtyLabel(p, p.stock)} · Nå: <b class="cnt-total">${qtyLabel(p, it.full + it.open)}</b></div>
+          <div class="row-sub">Før: ${qtyLabel(p, p.stock)} · Nå: <b class="cnt-total">${qtyLabel(p, it.full + it.open + prebatchUnits(p.id))}</b><span class="cnt-pre">${preNote(p)}</span></div>
         </div>
         <button class="done-btn" data-action="count-done" aria-label="Merk som telt">✓</button>
       </div>
@@ -1166,13 +1207,45 @@ function updateCountRow(row, markDone = true) {
   const it = draftItem(p);
   if (markDone) it.done = true;
   row.classList.toggle('done', it.done);
-  $('.cnt-total', row).textContent = qtyLabel(p, it.full + it.open);
+  $('.cnt-total', row).textContent = qtyLabel(p, it.full + it.open + prebatchUnits(p.id));
+  $('.cnt-pre', row).textContent = preNote(p);
   const range = $('.cnt-open', row);
   if (range) {
     $('.open-val', row).textContent = fmtNum(it.open, 1);
     $('.bottle i', row).style.height = `${it.open * 100}%`;
   }
   updateCountProgress();
+}
+
+// Flasker som ligger i prebatcher (drinker i kjøleskapet), regnet om fra oppskriftene.
+const batchDrinks = () => state.drinks.filter((d) => batchOf(d) > 1).sort(sortByName);
+function prebatchUnits(productId) {
+  const pre = state.draft?.prebatch || {};
+  let units = 0;
+  for (const d of state.drinks) {
+    const n = num(pre[d.id]);
+    if (!n) continue;
+    for (const ing of d.ingredients) if (ing.productId === productId) units += (ingredientUnits(ing) / batchOf(d)) * n;
+  }
+  return units;
+}
+
+function prebatchCard() {
+  const drinks = batchDrinks();
+  if (!drinks.length) return '';
+  const pre = state.draft.prebatch || {};
+  const open = Object.values(pre).some((n) => num(n) > 0);
+  return `
+    <details class="card prebatch" ${open ? 'open' : ''}>
+      <summary><b>Prebatcher</b> <span class="muted small">– drinker som står ferdig i kjøleskapet</span></summary>
+      <p class="hint" style="margin:8px 0">Skriv antall drinker. Flaskene i oppskriften legges til tellingen automatisk.</p>
+      ${drinks.map((d) => `
+        <label class="row" style="cursor:default;padding:8px 0">
+          <div class="row-main"><div class="row-title drink">${esc(d.name)}</div></div>
+          <input type="number" class="prebatch-input" data-drink="${d.id}" inputmode="numeric" min="0" step="1" value="${pre[d.id] || ''}" placeholder="0" style="width:90px;text-align:right">
+          <span class="muted small" style="width:48px">drinker</span>
+        </label>`).join('')}
+    </details>`;
 }
 
 function updateCountProgress() {
@@ -1190,6 +1263,12 @@ function saveDraftSoon() {
 }
 
 V.addEventListener('input', (e) => {
+  if (e.target.classList.contains('prebatch-input') && state.draft) {
+    state.draft.prebatch = { ...(state.draft.prebatch || {}), [e.target.dataset.drink]: Math.max(0, num(e.target.value)) };
+    $$('.count-row').forEach((r) => updateCountRow(r, false));
+    saveDraftSoon();
+    return;
+  }
   const row = e.target.closest('.count-row');
   if (!row || !state.draft) return;
   const it = draftItem(product(row.dataset.id));
@@ -1207,13 +1286,16 @@ function finishCount() {
   const date = new Date().toISOString();
   const items = scope.map((p) => {
     const it = draftItem(p);
-    const qty = Math.max(0, round1(it.full + it.open));
+    const pre = prebatchUnits(p.id);
+    const qty = Math.max(0, pre ? round2(it.full + it.open + pre) : round1(it.full + it.open));
     const prev = p.stock;
     p.stock = qty;
     if (qty !== prev) addLog(p, 'telling', qty - prev);
-    return { productId: p.id, name: p.name, category: p.category, unit: p.unit, cost: p.cost, qty, prev };
+    return { productId: p.id, name: p.name, category: p.category, unit: p.unit, cost: p.cost, qty, prev, ...(pre ? { prebatch: round2(pre) } : {}) };
   });
   const count = { id: uid(), type: state.draft.type === 'regular' ? 'regular' : 'full', date, startedAt: state.draft.startedAt, items, value: sum(items, (i) => i.qty * i.cost) };
+  if (state.draft.prebatch) count.prebatch = state.draft.prebatch;
+  state.settings.lastPrebatch = state.draft.prebatch || {};
   state.counts.push(count);
   state.draft = null;
   save();
@@ -1335,7 +1417,7 @@ function pourAnalysis(c, rows, totalUsed) {
     for (const ing of d.ingredients) {
       const p = product(ing.productId);
       if (!p) continue;
-      const units = isBottle(p) ? (ing.amount / p.sizeCl) * qty : ing.amount * qty;
+      const units = (ingredientUnits(ing) / batchOf(d)) * qty;
       expected.set(p.id, (expected.get(p.id) || 0) + units);
     }
   }
@@ -1649,7 +1731,7 @@ function renderDrinks() {
       <div class="row" data-action="edit-drink" data-id="${d.id}">
         <div class="row-main">
           <div class="row-title drink">${esc(d.name)}</div>
-          <div class="row-sub">Kost ${krx(cost, 2)} · pris ${krx(priceExVat(d.price))} · ${esc(d.ingredients.map((i) => product(i.productId)?.name).filter(Boolean).join(', ') || 'ingen ingredienser')}</div>
+          <div class="row-sub">Kost ${krx(cost, 2)} · pris ${krx(priceExVat(d.price))} · ${batchOf(d) > 1 ? `batch ${batchOf(d)} · ` : ''}${esc(d.ingredients.map((i) => product(i.productId)?.name || i.name).filter(Boolean).join(', ') || 'ingen ingredienser')}</div>
         </div>
         <div class="row-end">${pctBadge(pct)}</div>
       </div>`).join('')}</div>`
@@ -1657,7 +1739,94 @@ function renderDrinks() {
         <p>Legg inn drinker (eller enkeltpours, f.eks. «Gin 4 cl») med ingredienser og utsalgspris for å se pour cost.</p>
         ${state.products.length ? '' : '<p class="small">Tips: legg inn produkter med innkjøpspris først.</p>'}
       </div>`}
+    <div class="btn-row"><button class="btn" data-action="import-specs">Importer specs</button></div>
     <button class="fab" data-action="new-drink" aria-label="Ny drink">+</button>`;
+}
+
+/* ---------- Importer specs ----------
+   # Drinknavn; antall drinker i batchen; pris (valgfri)
+   Ingrediens; mengde; enhet (g, cl, ml, dash, dråper, stk) */
+function parseUnit(u) {
+  u = (u || '').toLowerCase();
+  if (/^(g|gr|gram)/.test(u)) return 'g';
+  if (/^ml/.test(u)) return 'ml';
+  if (/^cl/.test(u)) return 'cl';
+  if (/^dash/.test(u)) return 'dash';
+  if (/^(dr[åa]p|drop)/.test(u)) return 'drop';
+  if (/^stk/.test(u)) return 'stk';
+  return 'cl';
+}
+
+function parseSpecs(text) {
+  const drinks = [];
+  let cur = null;
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line) continue;
+    const cols = line.replace(/^#\s*/, '').split(/\t|;/).map((s) => s.trim());
+    if (line.startsWith('#')) {
+      cur = { name: cols[0], batch: Math.max(1, Math.round(num(cols[1])) || 1), price: Math.max(0, num(cols[2])), ingredients: [] };
+      drinks.push(cur);
+    } else if (cur && cols[0]) {
+      let unit = parseUnit(cols[2]);
+      let amount = Math.max(0, num(cols[1]));
+      if (unit === 'ml') { unit = 'cl'; amount /= 10; }
+      if (amount > 0) cur.ingredients.push({ name: cols[0], amount, unit });
+    }
+  }
+  return drinks.filter((d) => d.name);
+}
+
+function specsForm() {
+  openSheet(`
+    <h2>Importer specs</h2>
+    <p class="lead" style="margin-top:0">Lim inn specsene. Ingrediensene kobles til flaskene i lageret; det som ikke finnes der (sirup, juice o.l.) blir med i oppskriften, men telles ikke.</p>
+    <form data-form="specs">
+      <label class="field"><span>Specs</span>
+        <textarea name="text" rows="8" style="font-size:.85rem" placeholder="# Thai Basilikum; 10
+Tanqueray gin; 320; g
+Italicus; 182; g
+Simple syrup; 235; g"></textarea></label>
+      <div id="specs-preview"></div>
+      <div class="btn-row"><button class="btn primary" id="specs-submit" disabled>Importer</button></div>
+    </form>`, (root) => {
+    const form = $('form', root);
+    form.elements.text.addEventListener('input', () => {
+      const drinks = parseSpecs(form.elements.text.value);
+      $('#specs-preview', root).innerHTML = drinks.map((d) => {
+        const linked = d.ingredients.map((i) => ({ ...i, p: matchProduct(i.name) }));
+        const exists = state.drinks.some((x) => x.name.toLowerCase() === d.name.toLowerCase());
+        return `
+          <div class="card" style="padding:10px 12px">
+            <div class="row-title drink">${esc(d.name)} <span class="muted small" style="font-style:normal">· batch ${d.batch}${exists ? ' · oppdaterer eksisterende' : ''}</span></div>
+            ${linked.map((i) => `<div class="small"><span class="${i.p ? '' : 'muted'}">${esc(i.name)} ${fmtNum(i.amount, i.amount % 1 ? 1 : 0)} ${ING_UNITS[i.unit]}</span>
+              → ${i.p ? `<b>${esc(i.p.name)}</b>` : '<span class="muted">ikke i lager</span>'}</div>`).join('')}
+          </div>`;
+      }).join('');
+      $('#specs-submit', root).disabled = !drinks.length;
+    });
+  });
+}
+
+function saveSpecs(form) {
+  const drinks = parseSpecs(form.elements.text.value);
+  let created = 0;
+  let updated = 0;
+  for (const d of drinks) {
+    const ingredients = d.ingredients.map((i) => ({ productId: matchProduct(i.name)?.id || '', name: i.name, amount: i.amount, unit: i.unit }));
+    const existing = state.drinks.find((x) => x.name.toLowerCase() === d.name.toLowerCase());
+    if (existing) {
+      Object.assign(existing, { batch: d.batch, ingredients }, d.price ? { price: d.price } : {});
+      updated++;
+    } else {
+      state.drinks.push({ id: uid(), name: d.name, price: d.price, batch: d.batch, ingredients });
+      created++;
+    }
+  }
+  save();
+  closeSheet();
+  toast([created && `${created} nye drinker`, updated && `${updated} oppdatert`].filter(Boolean).join(' · ') || 'Ingenting importert');
+  render();
 }
 
 function productSelect(selectedId) {
@@ -1667,10 +1836,14 @@ function productSelect(selectedId) {
 
 function ingredientRow(ing = { productId: '', amount: '' }) {
   const p = product(ing.productId);
+  const unit = ingUnit(ing, p);
   return `
     <div class="ing">
-      <select name="ingProduct">${productSelect(ing.productId)}</select>
-      <div class="input-suffix"><input type="number" name="ingAmount" inputmode="decimal" min="0" step="any" value="${ing.amount}" placeholder="0"><em>${p && !isBottle(p) ? 'stk' : 'cl'}</em></div>
+      <select name="ingProduct">${productSelect(ing.productId).replace('<option value="">Velg produkt…</option>',
+        `<option value="">${ing.name && !p ? `${esc(ing.name)} (ikke i lager)` : 'Velg produkt…'}</option>`)}</select>
+      <input type="number" name="ingAmount" inputmode="decimal" min="0" step="any" value="${ing.amount}" placeholder="0" aria-label="Mengde">
+      <select name="ingUnit" aria-label="Enhet">${Object.entries(ING_UNITS).map(([k, l]) => `<option value="${k}" ${k === unit ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      <input type="hidden" name="ingName" value="${esc(ing.name || '')}">
       <button type="button" data-action="remove-ing" aria-label="Fjern">✕</button>
     </div>`;
 }
@@ -1678,15 +1851,19 @@ function ingredientRow(ing = { productId: '', amount: '' }) {
 function drinkForm(d) {
   const isNew = !d;
   if (!state.products.length) return toast('Legg til produkter først');
-  d = d || { name: '', price: '', ingredients: [{ productId: '', amount: 4 }] };
+  d = d || { name: '', price: '', batch: 1, ingredients: [{ productId: '', amount: 4 }] };
   const s = state.settings;
   openSheet(`
     <h2>${isNew ? 'Ny drink' : 'Rediger drink'}</h2>
     <form data-form="drink" data-id="${isNew ? '' : d.id}">
       <label class="field"><span>Navn</span><input type="text" name="name" value="${esc(d.name)}" required placeholder="F.eks. Negroni"></label>
-      <label class="field"><span>Utsalgspris inkl. mva</span>
-        <div class="input-suffix"><input type="number" name="price" inputmode="decimal" min="0" step="any" value="${d.price}" placeholder="0"><em>kr</em></div></label>
-      <div class="field"><span class="muted small">Ingredienser</span>
+      <div class="field-row">
+        <label class="field"><span>Utsalgspris inkl. mva</span>
+          <div class="input-suffix"><input type="number" name="price" inputmode="decimal" min="0" step="any" value="${d.price}" placeholder="0"><em>kr</em></div></label>
+        <label class="field"><span>Oppskriften gir</span>
+          <div class="input-suffix"><input type="number" name="batch" inputmode="numeric" min="1" step="1" value="${batchOf(d)}"><em>drinker</em></div></label>
+      </div>
+      <div class="field"><span class="muted small">Ingredienser${batchOf(d) > 1 ? ' (for hele batchen)' : ''}</span>
         <div id="ings" style="margin-top:4px">${d.ingredients.map(ingredientRow).join('')}</div>
         <button type="button" class="btn small" data-action="add-ing">+ Ingrediens</button>
       </div>
@@ -1701,7 +1878,7 @@ function drinkForm(d) {
     form.addEventListener('change', (e) => {
       if (e.target.name === 'ingProduct') {
         const p = product(e.target.value);
-        $('em', e.target.closest('.ing')).textContent = p && !isBottle(p) ? 'stk' : 'cl';
+        if (p && !isBottle(p)) $('[name=ingUnit]', e.target.closest('.ing')).value = 'stk';
       }
       updateDrinkCalc(form);
     });
@@ -1711,15 +1888,18 @@ function drinkForm(d) {
 }
 
 function readIngredients(form) {
-  return $$('.ing', form).map((row) => ({
-    productId: $('select', row).value,
-    amount: Math.max(0, num($('input', row).value)),
-  })).filter((i) => i.productId && i.amount > 0);
+  return $$('.ing', form).map((row) => {
+    const productId = $('[name=ingProduct]', row).value;
+    const ing = { productId, amount: Math.max(0, num($('[name=ingAmount]', row).value)), unit: $('[name=ingUnit]', row).value };
+    const name = $('[name=ingName]', row).value;
+    if (name) ing.name = name;
+    return ing;
+  }).filter((i) => (i.productId || i.name) && i.amount > 0);
 }
 
 function updateDrinkCalc(form) {
   const ings = readIngredients(form);
-  const cost = sum(ings, ingredientCost);
+  const cost = sum(ings, ingredientCost) / Math.max(1, num(form.elements.batch.value) || 1);
   const price = num(form.elements.price.value);
   const pct = pourPct(cost, price);
   const s = state.settings;
@@ -1737,7 +1917,7 @@ function updateDrinkCalc(form) {
 function saveDrink(form) {
   const name = form.elements.name.value.trim();
   if (!name) return toast('Drinken må ha et navn');
-  const data = { name, price: Math.max(0, num(form.elements.price.value)), ingredients: readIngredients(form) };
+  const data = { name, price: Math.max(0, num(form.elements.price.value)), batch: Math.max(1, Math.round(num(form.elements.batch.value)) || 1), ingredients: readIngredients(form) };
   const id = form.dataset.id;
   if (id) Object.assign(state.drinks.find((d) => d.id === id), data);
   else state.drinks.push({ id: uid(), ...data });
@@ -2031,7 +2211,7 @@ const actions = {
 
   'count-start': (el) => {
     const regular = el.dataset.type === 'regular';
-    state.draft = { startedAt: new Date().toISOString(), items: {}, type: regular ? 'regular' : 'full', ids: regular ? regularProducts().map((p) => p.id) : undefined };
+    state.draft = { startedAt: new Date().toISOString(), items: {}, prebatch: {}, type: regular ? 'regular' : 'full', ids: regular ? regularProducts().map((p) => p.id) : undefined };
     countFilter.q = '';
     countFilter.cat = '';
     save();
@@ -2076,6 +2256,7 @@ const actions = {
   },
 
   'new-drink': () => drinkForm(),
+  'import-specs': () => specsForm(),
   'edit-drink': (el) => drinkForm(state.drinks.find((d) => d.id === el.dataset.id)),
   'delete-drink': (el) => {
     const d = state.drinks.find((x) => x.id === el.dataset.id);
@@ -2129,6 +2310,7 @@ const forms = {
   product: saveProduct,
   bulk: saveBulk,
   receive: saveReceive,
+  specs: saveSpecs,
   'link-barcode': (form) => {
     const p = product(form.elements.productId.value);
     if (!p) return;

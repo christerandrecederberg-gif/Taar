@@ -219,7 +219,8 @@ label.field > span { display: block; font-size: .85rem; color: var(--muted); mar
 .kv .pct { display: inline-block; margin-top: 4px; font-size: .95rem; letter-spacing: 0; text-transform: none; }
 
 /* Ingredients editor */
-.ing { display: grid; grid-template-columns: 1fr 96px 40px; gap: 6px; margin-bottom: 6px; align-items: center; }
+.ing { display: grid; grid-template-columns: 1fr 64px 76px 40px; gap: 6px; margin-bottom: 6px; align-items: center; }
+.ing select, .ing input { padding-left: 8px; padding-right: 6px; }
 .ing button { height: 44px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface-2); cursor: pointer; }
 .calc { background: var(--surface-2); border-radius: 12px; padding: 10px 12px; margin: 10px 0; display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; font-variant-numeric: tabular-nums; }
 .calc .big { font-size: 1.1rem; font-weight: 700; }
@@ -378,3 +379,8 @@ a.chip { text-decoration: none; color: var(--text); }
 .reminder { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); }
 .reminder:first-of-type { border-top: 0; padding-top: 0; }
 .tag.due { background: color-mix(in srgb, var(--peach) 25%, transparent); color: var(--clay); }
+
+/* Prebatch i tellingen */
+details.prebatch summary { cursor: pointer; list-style: none; }
+details.prebatch summary::-webkit-details-marker { display: none; }
+details.prebatch .row { border-top: 1px solid var(--line); min-height: 0; }

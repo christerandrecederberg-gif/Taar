@@ -13,6 +13,7 @@ En enkel inventar-app for baren, inspirert av Backbar. Den er laget for mobil og
 - **Leverandører**: hvert produkt kan ha en leverandør. Lavt lager og handlelisten grupperes etter leverandør, og hver gruppe kan deles for seg.
 - **Strekkodeskanning**: skann flasker med kameraet for å finne produktet, koble en strekkode til et produkt eller hoppe rett til produktet under telling. Koden kan også skrives inn for hånd.
 - **Faktisk pour cost**: legg inn salget for perioden mellom to tellinger. Appen viser faktisk pour cost (forbruk ÷ salg eks. mva) mot teoretisk (oppskrifter) og avviket per produkt, altså svinn og overpouring.
+- **Specs og prebatch**: drinker kan ha batchstørrelse og ingredienser i cl, gram, dash, dråper eller stk (gram regnes om med typisk tetthet per kategori). «Importer specs» under Pour cost tar imot en liste (`# Drink; batch` + `Ingrediens; mengde; enhet`). I tellingen skriver du antall drinker som står i prebatch, og flaskeandelen legges til tellingen.
 - **Pour cost**: drinker med oppskrift (cl per ingrediens) og utsalgspris. Appen viser varekost, pour cost i %, fortjeneste per drink og hvilken pris som gir målet ditt. Mva-sats og mål stiller du inn selv.
 - **Rapport per telling**: lagerverdi, forbruk, varemottak, faktisk pour cost og avvik for perioden. Deles som PDF (via utskrift → del) eller som kort tekst.
 - **Priser og mva**: alle priser (innkjøp og utsalg) skrives inn med mva. Én felles bryter – øverst til høyre på hver side og under Mer – viser alle beløp med eller uten mva. Pour cost i % blir den samme uansett.
