@@ -7,7 +7,7 @@
 
 // Nøkkelen beholdes uendret slik at eksisterende data ikke forsvinner.
 const STORAGE_KEY = 'taar.data.v1';
-const APP_VERSION = '21';
+const APP_VERSION = '22';
 const CATEGORIES = [
   'Vodka', 'Gin', 'Rom', 'Whisky', 'Tequila/Mezcal', 'Cognac/Brandy', 'Akevitt', 'Likør',
   'Bitter/Amaro', 'Bitters', 'Vermut/Aperitiff', 'Vin', 'Musserende', 'Øl/Cider', 'Sirup', 'Mixer', 'Annet',
@@ -1808,12 +1808,12 @@ Honningsirup; 15; ml
 Sitronjuice; 15; ml
 
 # Christer's Margarita; 1; 189
-José Cuervo tequila blanco; 32,7; ml
-Cointreau; 20,5; ml
-Klar jordbærsaft; 24,5; ml
-Agavesirup; 12,3; ml
+José Cuervo tequila blanco; 34,3; ml
+Cointreau; 17,1; ml
+Klar jordbærsaft; 25,7; ml
+Agavesirup; 12,9; ml
 Limejuice; 25; ml
-Hellfire bitters; 1,2; dråper
+Hellfire bitters; 2,6; dråper
 
 # Siste blomst; 1; 189
 Mezcal; 20; ml
