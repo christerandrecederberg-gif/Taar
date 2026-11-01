@@ -7,7 +7,7 @@
 
 // Nøkkelen beholdes uendret slik at eksisterende data ikke forsvinner.
 const STORAGE_KEY = 'taar.data.v1';
-const APP_VERSION = '23';
+const APP_VERSION = '24';
 const CATEGORIES = [
   'Vodka', 'Gin', 'Rom', 'Whisky', 'Tequila/Mezcal', 'Cognac/Brandy', 'Akevitt', 'Likør',
   'Bitter/Amaro', 'Bitters', 'Vermut/Aperitiff', 'Vin', 'Musserende', 'Øl/Cider', 'Sirup', 'Mixer', 'Annet',
@@ -1855,6 +1855,8 @@ const TAR_RAW = [
   ['Simple syrup', 20, 'l'], ['Simple syrup 1:1', 20, 'l'], ['Cinnamon bark syrup', 20, 'l'], ['Rich simple syrup 2:1', 29, 'l'],
   ['Mintsirup 2:1', 29, 'l'], ['Earl Grey te-sirup 2:1', 29, 'l'], ['Honningsirup 3:2', 133, 'l'], ['Honningsirup 3:1', 175, 'l'],
   ['Thai basilikum', 833, 'kg'], ['Bivoks', 500, 'kg'], ['Vann', 0, 'l'],
+  ['Darjeeling-te', 1300, 'kg'], ['Espressobønner', 290, 'kg'], ['Pasjonsfruktpuré', 168, 'kg'], ['Ananasjuice', 100, 'l'],
+  ['Mynte', 833, 'kg'], ['Malic acid', 350, 'kg'], ['Sitronsyre', 350, 'kg'],
 ];
 
 // Tårs meny (specs fra Christer, oktober 2026). Fylles inn med knappen «Fyll inn Tår-menyen».
@@ -1886,6 +1888,7 @@ Sitronjuice; 22,5; ml
 Vodka (Darjeeling-infusert); 60; ml
 Honningsirup 3:2; 15; ml
 Sitronjuice; 15; ml
+Darjeeling-te; 1,92; g
 
 # Christer's Margarita; 1; 189
 José Cuervo tequila blanco; 34,3; ml
