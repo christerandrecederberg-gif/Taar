@@ -7,7 +7,7 @@
 
 // Nøkkelen beholdes uendret slik at eksisterende data ikke forsvinner.
 const STORAGE_KEY = 'taar.data.v1';
-const APP_VERSION = '24';
+const APP_VERSION = '25';
 const CATEGORIES = [
   'Vodka', 'Gin', 'Rom', 'Whisky', 'Tequila/Mezcal', 'Cognac/Brandy', 'Akevitt', 'Likør',
   'Bitter/Amaro', 'Bitters', 'Vermut/Aperitiff', 'Vin', 'Musserende', 'Øl/Cider', 'Sirup', 'Mixer', 'Annet',
@@ -1853,7 +1853,7 @@ function saveRaw(form) {
 const TAR_RAW = [
   ['Limejuice', 210, 'l'], ['Sitronjuice', 108, 'l'], ['Klar jordbærsaft', 167, 'l'], ['Agavesirup', 192, 'l'],
   ['Simple syrup', 20, 'l'], ['Simple syrup 1:1', 20, 'l'], ['Cinnamon bark syrup', 20, 'l'], ['Rich simple syrup 2:1', 29, 'l'],
-  ['Mintsirup 2:1', 29, 'l'], ['Earl Grey te-sirup 2:1', 29, 'l'], ['Honningsirup 3:2', 133, 'l'], ['Honningsirup 3:1', 175, 'l'],
+  ['Mintsirup 2:1', 63, 'l'], ['Earl Grey te-sirup 2:1', 29, 'l'], ['Honningsirup 3:2', 133, 'l'], ['Honningsirup 3:1', 175, 'l'],
   ['Thai basilikum', 833, 'kg'], ['Bivoks', 500, 'kg'], ['Vann', 0, 'l'],
   ['Darjeeling-te', 1300, 'kg'], ['Espressobønner', 290, 'kg'], ['Pasjonsfruktpuré', 168, 'kg'], ['Ananasjuice', 100, 'l'],
   ['Mynte', 833, 'kg'], ['Malic acid', 350, 'kg'], ['Sitronsyre', 350, 'kg'],
