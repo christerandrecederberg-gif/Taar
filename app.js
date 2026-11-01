@@ -7,7 +7,7 @@
 
 // Nøkkelen beholdes uendret slik at eksisterende data ikke forsvinner.
 const STORAGE_KEY = 'taar.data.v1';
-const APP_VERSION = '22';
+const APP_VERSION = '23';
 const CATEGORIES = [
   'Vodka', 'Gin', 'Rom', 'Whisky', 'Tequila/Mezcal', 'Cognac/Brandy', 'Akevitt', 'Likør',
   'Bitter/Amaro', 'Bitters', 'Vermut/Aperitiff', 'Vin', 'Musserende', 'Øl/Cider', 'Sirup', 'Mixer', 'Annet',
@@ -41,6 +41,7 @@ function defaultState() {
     settings: { vatPct: 25, pricesIncludeVat: true, targetPourCost: 20, lastBackup: null, costsInclVat: true, showInclVat: true, regularEveryDays: 14, fullEveryDays: 182 },
     products: [],
     drinks: [],
+    rawItems: [],
     counts: [],
     log: [],
     draft: null,
@@ -49,7 +50,7 @@ function defaultState() {
 
 function migrate(data) {
   const d = defaultState();
-  return { ...d, ...data, settings: { ...d.settings, ...(data.settings || {}) } };
+  return { ...d, ...data, rawItems: data.rawItems || [], settings: { ...d.settings, ...(data.settings || {}) } };
 }
 
 function load() {
@@ -129,8 +130,33 @@ function ingredientUnits(ing) {
 }
 function ingredientCost(ing) {
   const p = product(ing.productId);
-  return p ? exVat(ingredientUnits(ing) * p.cost) : 0;
+  if (p) return exVat(ingredientUnits(ing) * p.cost);
+  const r = !ing.productId && ing.name ? matchRaw(ing.name) : null;
+  return r ? rawCostEx(r, ing) : 0;
 }
+
+/* ---------- Råvarer: juice, sirup, urter o.l. som bare brukes i pour cost (telles ikke) ----------
+   Pris inkl. mva (standard 15 % for mat) per liter, kg eller stk. */
+const RAW_PER = { l: 'liter', kg: 'kg', stk: 'stk' };
+function matchRaw(name) {
+  const n = normName(name);
+  if (!n) return null;
+  const list = (state.rawItems || []).map((r) => ({ r, k: normName(r.name) })).filter((x) => x.k);
+  const exact = list.find((x) => x.k === n);
+  if (exact) return exact.r;
+  const hits = list.filter((x) => n.includes(x.k) || x.k.includes(n)).sort((a, b) => b.k.length - a.k.length);
+  return hits[0]?.r || null;
+}
+// Mengde av ingrediensen i råvarens enhet (liter, kg eller stk).
+function rawQty(r, ing) {
+  const u = ing.unit || 'cl';
+  const ml = u === 'cl' ? ing.amount * 10 : u === 'dash' ? ing.amount * 0.8 : u === 'drop' ? ing.amount * 0.05
+    : u === 'g' ? ing.amount / (/sirup|syrup/i.test(r.name) ? 1.25 : 1) : 0;
+  if (r.per === 'l') return ml / 1000;
+  if (r.per === 'kg') return (u === 'g' ? ing.amount : ml) / 1000;
+  return u === 'stk' ? ing.amount : 0;
+}
+const rawCostEx = (r, ing) => (rawQty(r, ing) * num(r.price)) / (1 + (r.vat ?? 15) / 100);
 const drinkCost = (d) => sum(d.ingredients, ingredientCost) / batchOf(d);
 function priceExVat(price) {
   const s = state.settings;
@@ -1740,6 +1766,17 @@ function renderDrinks() {
         ${state.products.length ? '' : '<p class="small">Tips: legg inn produkter med innkjøpspris først.</p>'}
       </div>`}
     <div class="btn-row"><button class="btn" data-action="import-specs">Importer specs</button></div>
+
+    <div class="group-label">Råvarer <span style="text-transform:none;letter-spacing:0">– telles ikke, brukes bare i pour cost</span></div>
+    ${(state.rawItems || []).length ? `<div class="list">${state.rawItems.slice().sort(sortByName).map((r) => `
+      <div class="row" data-action="edit-raw" data-id="${r.id}">
+        <div class="row-main"><div class="row-title" style="font-size:1.05rem">${esc(r.name)}</div>
+          <div class="row-sub">${kr(r.price)} per ${RAW_PER[r.per]} inkl. ${fmtNum(r.vat ?? 15)} % mva</div></div>
+      </div>`).join('')}</div>` : '<p class="hint" style="margin:0 4px 10px">Ingen råvarer ennå.</p>'}
+    <div class="btn-row">
+      <button class="btn" data-action="new-raw">+ Råvare</button>
+      <button class="btn" data-action="tar-raw">Fyll inn Tårs råvarer</button>
+    </div>
     <button class="fab" data-action="new-drink" aria-label="Ny drink">+</button>`;
 }
 
@@ -1777,6 +1814,49 @@ function parseSpecs(text) {
   return drinks.filter((d) => d.name);
 }
 
+function rawForm(r) {
+  const isNew = !r;
+  r = r || { name: '', price: '', per: 'l', vat: 15 };
+  openSheet(`
+    <h2>${isNew ? 'Ny råvare' : 'Rediger råvare'}</h2>
+    <form data-form="raw" data-id="${isNew ? '' : r.id}">
+      <label class="field"><span>Navn (som i specsene)</span><input type="text" name="name" value="${esc(r.name)}" required placeholder="F.eks. Limejuice"></label>
+      <div class="field-row">
+        <label class="field"><span>Pris inkl. mva</span>
+          <div class="input-suffix"><input type="number" name="price" inputmode="decimal" min="0" step="any" value="${r.price}"><em>kr</em></div></label>
+        <label class="field"><span>Per</span><select name="per">${Object.entries(RAW_PER).map(([k, l]) => `<option value="${k}" ${k === r.per ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+      </div>
+      <label class="field"><span>Mva</span>
+        <div class="input-suffix"><input type="number" name="vat" inputmode="decimal" min="0" max="100" step="any" value="${r.vat ?? 15}"><em>%</em></div></label>
+      <p class="hint">Matvarer har 15 % mva. Ingredienser med samme navn i drinkene får prisen automatisk.</p>
+      <div class="btn-row">
+        ${isNew ? '' : `<button type="button" class="btn danger" data-action="delete-raw" data-id="${r.id}">Slett</button>`}
+        <button class="btn primary">${isNew ? 'Legg til' : 'Lagre'}</button>
+      </div>
+    </form>`);
+}
+
+function saveRaw(form) {
+  const f = form.elements;
+  const data = { name: f.name.value.trim(), price: Math.max(0, num(f.price.value)), per: f.per.value, vat: Math.max(0, num(f.vat.value)) };
+  if (!data.name) return toast('Råvaren må ha et navn');
+  const id = form.dataset.id;
+  if (id) Object.assign(state.rawItems.find((x) => x.id === id), data);
+  else state.rawItems.push({ id: uid(), ...data });
+  save();
+  closeSheet();
+  toast('Lagret');
+  render();
+}
+
+// Tårs råvarer, utregnet fra Christers priser (november 2026). Navnene matcher ingrediensene i specsene.
+const TAR_RAW = [
+  ['Limejuice', 210, 'l'], ['Sitronjuice', 108, 'l'], ['Klar jordbærsaft', 167, 'l'], ['Agavesirup', 192, 'l'],
+  ['Simple syrup', 20, 'l'], ['Simple syrup 1:1', 20, 'l'], ['Cinnamon bark syrup', 20, 'l'], ['Rich simple syrup 2:1', 29, 'l'],
+  ['Mintsirup 2:1', 29, 'l'], ['Earl Grey te-sirup 2:1', 29, 'l'], ['Honningsirup 3:2', 133, 'l'], ['Honningsirup 3:1', 175, 'l'],
+  ['Thai basilikum', 833, 'kg'], ['Bivoks', 500, 'kg'], ['Vann', 0, 'l'],
+];
+
 // Tårs meny (specs fra Christer, oktober 2026). Fylles inn med knappen «Fyll inn Tår-menyen».
 const TAR_MENU_SPECS = `# Thai Basilikum; 1; 189
 Tanqueray gin; 35; ml
@@ -1804,7 +1884,7 @@ Sitronjuice; 22,5; ml
 
 # Te tid; 1; 189
 Vodka (Darjeeling-infusert); 60; ml
-Honningsirup; 15; ml
+Honningsirup 3:2; 15; ml
 Sitronjuice; 15; ml
 
 # Christer's Margarita; 1; 189
@@ -1838,11 +1918,12 @@ Simple syrup; 150; g
 Vann; 115; g
 Angostura bitters; 4; g
 Peychaud's bitters; 2; g
+Bivoks; 50; g
 
 # Tiki; 1; 189
 Saltoppløsning; 5; dråper
 Limejuice; 15; ml
-Honningsirup; 15; ml
+Honningsirup 3:1; 15; ml
 Pasjonsfruktpuré; 5; ml
 Falernum; 6,67; ml
 Hjemmelaget pimento dram; 1,67; ml
@@ -1857,6 +1938,7 @@ Licor 43; 6; ml
 Lazzaroni Amaro; 4,5; ml
 Cynar; 0,75; ml
 Amaro Meletti; 0,75; ml
+Espressobønner; 1,5; g
 
 # Negroni; 1; 189
 Hendrick's gin; 30; ml
@@ -1948,7 +2030,7 @@ function ingredientRow(ing = { productId: '', amount: '' }) {
   return `
     <div class="ing">
       <select name="ingProduct">${productSelect(ing.productId).replace('<option value="">Velg produkt…</option>',
-        `<option value="">${ing.name && !p ? `${esc(ing.name)} (ikke i lager)` : 'Velg produkt…'}</option>`)}</select>
+        `<option value="">${ing.name && !p ? `${esc(ing.name)} (${matchRaw(ing.name) ? 'råvare' : 'ikke i lager, ingen pris'})` : 'Velg produkt…'}</option>`)}</select>
       <input type="number" name="ingAmount" inputmode="decimal" min="0" step="any" value="${ing.amount}" placeholder="0" aria-label="Mengde">
       <select name="ingUnit" aria-label="Enhet">${Object.entries(ING_UNITS).map(([k, l]) => `<option value="${k}" ${k === unit ? 'selected' : ''}>${l}</option>`).join('')}</select>
       <input type="hidden" name="ingName" value="${esc(ing.name || '')}">
@@ -2365,6 +2447,27 @@ const actions = {
 
   'new-drink': () => drinkForm(),
   'import-specs': () => specsForm(),
+  'new-raw': () => rawForm(),
+  'edit-raw': (el) => rawForm(state.rawItems.find((r) => r.id === el.dataset.id)),
+  'delete-raw': (el) => {
+    const r = state.rawItems.find((x) => x.id === el.dataset.id);
+    if (!confirm(`Slette «${r.name}»?`)) return;
+    state.rawItems = state.rawItems.filter((x) => x !== r);
+    save();
+    closeSheet();
+    render();
+  },
+  'tar-raw': () => {
+    let added = 0;
+    let updated = 0;
+    for (const [name, price, per] of TAR_RAW) {
+      const existing = state.rawItems.find((r) => normName(r.name) === normName(name));
+      if (existing) { Object.assign(existing, { price, per }); updated++; } else { state.rawItems.push({ id: uid(), name, price, per, vat: 15 }); added++; }
+    }
+    save();
+    toast([added && `${added} råvarer lagt til`, updated && `${updated} oppdatert`].filter(Boolean).join(' · '));
+    render();
+  },
   'edit-drink': (el) => drinkForm(state.drinks.find((d) => d.id === el.dataset.id)),
   'delete-drink': (el) => {
     const d = state.drinks.find((x) => x.id === el.dataset.id);
@@ -2419,6 +2522,7 @@ const forms = {
   bulk: saveBulk,
   receive: saveReceive,
   specs: saveSpecs,
+  raw: saveRaw,
   'link-barcode': (form) => {
     const p = product(form.elements.productId.value);
     if (!p) return;
