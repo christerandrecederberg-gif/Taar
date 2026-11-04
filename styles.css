@@ -398,3 +398,4 @@ details.prebatch .row { border-top: 1px solid var(--line); min-height: 0; }
 .ct-row.miss { border-left-color: var(--bad); background: color-mix(in srgb, var(--bad) 6%, transparent); }
 .ct-row .ct-res { white-space: normal; font-weight: 600; color: var(--brand); max-width: 55%; }
 .ct-row .row-title { white-space: normal; }
+details.prebatch summary .batch-total { float: right; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--brand); }

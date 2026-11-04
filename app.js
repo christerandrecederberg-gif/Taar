@@ -7,7 +7,7 @@
 
 // Nøkkelen beholdes uendret slik at eksisterende data ikke forsvinner.
 const STORAGE_KEY = 'taar.data.v1';
-const APP_VERSION = '26';
+const APP_VERSION = '27';
 const CATEGORIES = [
   'Vodka', 'Gin', 'Rom', 'Whisky', 'Tequila/Mezcal', 'Cognac/Brandy', 'Akevitt', 'Likør',
   'Bitter/Amaro', 'Bitters', 'Vermut/Aperitiff', 'Vin', 'Musserende', 'Øl/Cider', 'Sirup', 'Mixer', 'Annet',
@@ -1181,7 +1181,7 @@ function renderCount() {
       <button class="btn" data-action="count-text">🎤 Telling fra tekst</button>
       ${state.draft.textUndo ? '<button class="btn" data-action="count-text-undo">↶ Angre innlesing</button>' : ''}
     </div>
-    <div id="cnt-pre">${prebatchCard()}</div>
+    <div id="cnt-pre">${batchCard()}</div>
     <div id="cnt-list"></div>
     <div class="count-footer">
       <div class="progress"><span id="cnt-progress"></span><div class="bar"><i id="cnt-bar"></i></div></div>
@@ -1202,8 +1202,6 @@ function renderCountList() {
   updateCountProgress();
 }
 
-const preNote = (p) => { const u = prebatchUnits(p.id); return u > 0.004 ? ` · inkl. ${fmtNum(u, 2)} ${isBottle(p) ? 'fl' : 'stk'} i prebatch` : ''; };
-
 function countItemRow(p) {
   const it = draftItem(p);
   return `
@@ -1211,7 +1209,7 @@ function countItemRow(p) {
       <div class="count-head">
         <div class="row-main">
           <div class="row-title">${esc(p.name)}</div>
-          <div class="row-sub">Før: ${qtyLabel(p, p.stock)} · Nå: <b class="cnt-total">${qtyLabel(p, it.full + it.open + prebatchUnits(p.id))}</b><span class="cnt-pre">${preNote(p)}</span></div>
+          <div class="row-sub">Før: ${qtyLabel(p, p.stock)} · Nå: <b class="cnt-total">${qtyLabel(p, it.full + it.open)}</b></div>
         </div>
         <button class="done-btn" data-action="count-done" aria-label="Merk som telt">✓</button>
       </div>
@@ -1237,8 +1235,7 @@ function updateCountRow(row, markDone = true) {
   const it = draftItem(p);
   if (markDone) it.done = true;
   row.classList.toggle('done', it.done);
-  $('.cnt-total', row).textContent = qtyLabel(p, it.full + it.open + prebatchUnits(p.id));
-  $('.cnt-pre', row).textContent = preNote(p);
+  $('.cnt-total', row).textContent = qtyLabel(p, it.full + it.open);
   const range = $('.cnt-open', row);
   if (range) {
     $('.open-val', row).textContent = fmtNum(it.open, 1);
@@ -1247,35 +1244,46 @@ function updateCountRow(row, markDone = true) {
   updateCountProgress();
 }
 
-// Flasker som ligger i prebatcher (drinker i kjøleskapet), regnet om fra oppskriftene.
-const batchDrinks = () => state.drinks.filter((d) => batchOf(d) > 1).sort(sortByName);
-function prebatchUnits(productId) {
-  const pre = state.draft?.prebatch || {};
-  let units = 0;
+// Batcher (cheater bottles): ca. antall drinker som står ferdig. Bare en verdi – flaskene og forbruket påvirkes ikke.
+// Verdien per drink er specen uten det ferske: råvarer (ikke flasker i lageret) med sitrus eller juice i navnet.
+const FRESH_RE = /lime|sitron|lemon|appelsin|orange|grapefrukt|grapefruit|juice|\bjus\b/i;
+const isFreshIng = (ing) => !product(ing.productId) && FRESH_RE.test(ing.name || '');
+const batchDrinkValue = (d) => sum(d.ingredients.filter((i) => !isFreshIng(i)), ingredientCost) / batchOf(d); // eks. mva
+const batchDrinks = () => state.drinks.filter((d) => d.ingredients?.length).sort(sortByName);
+const batchesValue = (b) => sum(Object.values(b || {}), (x) => x.value || 0);
+
+function draftBatches() {
+  const b = {};
   for (const d of state.drinks) {
-    const n = num(pre[d.id]);
-    if (!n) continue;
-    for (const ing of d.ingredients) if (ing.productId === productId) units += (ingredientUnits(ing) / batchOf(d)) * n;
+    const n = num(state.draft?.batches?.[d.id]);
+    if (n > 0) b[d.id] = { name: d.name, n, value: round2(n * batchDrinkValue(d)) };
   }
-  return units;
+  return b;
 }
 
-function prebatchCard() {
+function batchCard() {
   const drinks = batchDrinks();
   if (!drinks.length) return '';
-  const pre = state.draft.prebatch || {};
-  const open = Object.values(pre).some((n) => num(n) > 0);
+  const bt = state.draft.batches || {};
+  const open = Object.values(bt).some((n) => num(n) > 0);
   return `
     <details class="card prebatch" ${open ? 'open' : ''}>
-      <summary><b>Prebatcher</b> <span class="muted small">– drinker som står ferdig i kjøleskapet</span></summary>
-      <p class="hint" style="margin:8px 0">Skriv antall drinker. Flaskene i oppskriften legges til tellingen automatisk.</p>
+      <summary><b>Batcher</b> <span class="muted small">– cheater bottles i kjøleskapet</span>
+        <span class="batch-total" id="batch-total">${krx(batchesValue(draftBatches()))}</span></summary>
+      <p class="hint" style="margin:8px 0">Skriv ca. antall drinker. Verdien regnes fra specen, uten sitrus og juice. Flaskene i lageret påvirkes ikke.</p>
       ${drinks.map((d) => `
         <label class="row" style="cursor:default;padding:8px 0">
-          <div class="row-main"><div class="row-title drink">${esc(d.name)}</div></div>
-          <input type="number" class="prebatch-input" data-drink="${d.id}" inputmode="numeric" min="0" step="1" value="${pre[d.id] || ''}" placeholder="0" style="width:90px;text-align:right">
+          <div class="row-main"><div class="row-title drink">${esc(d.name)}</div>
+            <div class="row-sub batch-val" data-drink="${d.id}">${batchRowNote(d)}</div></div>
+          <input type="number" class="batch-input" data-drink="${d.id}" inputmode="numeric" min="0" step="1" value="${bt[d.id] || ''}" placeholder="0" style="width:90px;text-align:right">
           <span class="muted small" style="width:48px">drinker</span>
         </label>`).join('')}
     </details>`;
+}
+function batchRowNote(d) {
+  const per = batchDrinkValue(d);
+  const n = num(state.draft?.batches?.[d.id]);
+  return `${krx(per, 2)} per drink${n > 0 ? ` · ${krx(n * per)}` : ''}`;
 }
 
 function updateCountProgress() {
@@ -1293,9 +1301,13 @@ function saveDraftSoon() {
 }
 
 V.addEventListener('input', (e) => {
-  if (e.target.classList.contains('prebatch-input') && state.draft) {
-    state.draft.prebatch = { ...(state.draft.prebatch || {}), [e.target.dataset.drink]: Math.max(0, num(e.target.value)) };
-    $$('.count-row').forEach((r) => updateCountRow(r, false));
+  if (e.target.classList.contains('batch-input') && state.draft) {
+    const id = e.target.dataset.drink;
+    state.draft.batches = { ...(state.draft.batches || {}), [id]: Math.max(0, num(e.target.value)) };
+    const d = state.drinks.find((x) => x.id === id);
+    const note = $(`.batch-val[data-drink="${id}"]`);
+    if (d && note) note.textContent = batchRowNote(d);
+    $('#batch-total').textContent = krx(batchesValue(draftBatches()));
     saveDraftSoon();
     return;
   }
@@ -1316,16 +1328,15 @@ function finishCount() {
   const date = new Date().toISOString();
   const items = scope.map((p) => {
     const it = draftItem(p);
-    const pre = prebatchUnits(p.id);
-    const qty = Math.max(0, pre ? round2(it.full + it.open + pre) : round1(it.full + it.open));
+    const qty = Math.max(0, round1(it.full + it.open));
     const prev = p.stock;
     p.stock = qty;
     if (qty !== prev) addLog(p, 'telling', qty - prev);
-    return { productId: p.id, name: p.name, category: p.category, unit: p.unit, cost: p.cost, qty, prev, ...(pre ? { prebatch: round2(pre) } : {}) };
+    return { productId: p.id, name: p.name, category: p.category, unit: p.unit, cost: p.cost, qty, prev };
   });
   const count = { id: uid(), type: state.draft.type === 'regular' ? 'regular' : 'full', date, startedAt: state.draft.startedAt, items, value: sum(items, (i) => i.qty * i.cost) };
-  if (state.draft.prebatch) count.prebatch = state.draft.prebatch;
-  state.settings.lastPrebatch = state.draft.prebatch || {};
+  const batches = draftBatches();
+  if (Object.keys(batches).length) { count.batches = batches; count.batchValue = round2(batchesValue(batches)); }
   state.counts.push(count);
   state.draft = null;
   save();
@@ -1674,6 +1685,7 @@ function renderHistory(id) {
       <div class="stat"><div class="label">Produkter</div><div class="value">${c.items.length}</div><div class="muted small">${countTypeLabel(c)}</div></div>
       <div class="stat"><div class="label">Endring</div><div class="value">${prev && isFullCount(c) ? (c.value >= prev.value ? '+' : '') + krc(c.value - prev.value) : '–'}</div></div>
     </div>
+    ${batchSummaryCard(c)}
     ${pourHtml}
     <div class="card"><h2>Forbruk</h2>${usageHtml}</div>
     <div class="card">
@@ -1691,6 +1703,21 @@ function renderHistory(id) {
     <div class="btn-row">
       <a class="btn" href="#/historikk">Alle tellinger</a>
       <button class="btn danger" data-action="delete-count" data-id="${c.id}">Slett telling</button>
+    </div>`;
+}
+
+const batchList = (c) => Object.values(c.batches || {}).sort(sortByName);
+function batchSummaryCard(c) {
+  const list = batchList(c);
+  if (!list.length) return '';
+  return `
+    <div class="card">
+      <div class="card-head"><h2>Batcher</h2><b>${krx(c.batchValue || 0)}</b></div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Drink</th><th class="n">Drinker</th><th class="n">Verdi</th></tr></thead>
+        <tbody>${list.map((b) => `<tr><td>${esc(b.name)}</td><td class="n">${fmtNum(b.n)}</td><td class="n">${krx(b.value)}</td></tr>`).join('')}</tbody>
+      </table></div>
+      <p class="hint" style="margin:8px 0 0">Cheater bottles, uten sitrus og juice. ${vatLabel()}. Ikke med i lagerverdien.</p>
     </div>`;
 }
 
@@ -1883,6 +1910,7 @@ function renderReport(id) {
         <div><span>Endring</span><b>${prev && isFullCount(c) ? (c.value >= prev.value ? '+' : '') + krc(c.value - prev.value) : '–'}</b></div>
         <div><span>Forbruk</span><b>${prev ? krc(totalUsed) : '–'}</b></div>
         <div><span>Varemottak</span><b>${prev ? krc(received) : '–'}</b></div>
+        ${c.batchValue ? `<div><span>Verdi i batcher</span><b>${krx(c.batchValue)}</b></div>` : ''}
         ${pour ? `
           <div><span>Salg ${vatLabel()}</span><b>${krx(pour.revenueEx)}</b></div>
           <div><span>Faktisk pour cost</span><b>${pour.actualPct == null ? '–' : fmtNum(pour.actualPct, 1) + ' %'}</b></div>
@@ -1916,6 +1944,18 @@ function renderReport(id) {
           <p class="hint">Positivt avvik = mer brukt enn oppskriftene tilsier (svinn, overpouring, spanderte drinker eller salg som ikke er lagt inn).</p>
         </section>` : ''}
 
+      ${batchList(c).length ? `
+        <section>
+          <h3>Batcher (cheater bottles)</h3>
+          <table>
+            <thead><tr><th>Drink</th><th class="n">Drinker</th><th class="n">Verdi</th></tr></thead>
+            <tbody>${batchList(c).map((b) => `<tr><td>${esc(b.name)}</td><td class="n">${fmtNum(b.n)}</td><td class="n">${krx(b.value)}</td></tr>`).join('')}
+              <tr class="sum-row"><td>Sum</td><td></td><td class="n">${krx(c.batchValue)}</td></tr>
+            </tbody>
+          </table>
+          <p class="hint">Uten sitrus og juice. Ikke med i lagerverdien.</p>
+        </section>` : ''}
+
       <section>
         <h3>Beholdning ved telling</h3>
         <table>
@@ -1938,6 +1978,7 @@ function reportText(c) {
   const lines = [`Tår – ${isFullCount(c) ? 'tellingsrapport' : 'jevnlig sjekk'} ${fmtDate(c.date)}`];
   if (prev) lines.push(`Periode: ${fmtDate(prev.date)} – ${fmtDate(c.date)} (${days} ${days === 1 ? 'dag' : 'dager'})`);
   lines.push('', `Lagerverdi (${vatLabel()}): ${krc(c.value)}`);
+  if (c.batchValue) lines.push(`Verdi i batcher (${vatLabel()}): ${krx(c.batchValue)}`, ...batchList(c).map((b) => `• ${b.name}: ${fmtNum(b.n)} drinker (${krx(b.value)})`));
   if (prev) {
     if (isFullCount(c)) lines.push(`Endring: ${c.value >= prev.value ? '+' : ''}${krc(c.value - prev.value)}`);
     lines.push(`Forbruk: ${krc(totalUsed)}`);
@@ -2695,7 +2736,7 @@ const actions = {
 
   'count-start': (el) => {
     const regular = el.dataset.type === 'regular';
-    state.draft = { startedAt: new Date().toISOString(), items: {}, prebatch: {}, type: regular ? 'regular' : 'full', ids: regular ? regularProducts().map((p) => p.id) : undefined };
+    state.draft = { startedAt: new Date().toISOString(), items: {}, batches: {}, type: regular ? 'regular' : 'full', ids: regular ? regularProducts().map((p) => p.id) : undefined };
     countFilter.q = '';
     countFilter.cat = '';
     save();
