@@ -7,7 +7,7 @@
 
 // Nøkkelen beholdes uendret slik at eksisterende data ikke forsvinner.
 const STORAGE_KEY = 'taar.data.v1';
-const APP_VERSION = '27';
+const APP_VERSION = '28';
 const CATEGORIES = [
   'Vodka', 'Gin', 'Rom', 'Whisky', 'Tequila/Mezcal', 'Cognac/Brandy', 'Akevitt', 'Likør',
   'Bitter/Amaro', 'Bitters', 'Vermut/Aperitiff', 'Vin', 'Musserende', 'Øl/Cider', 'Sirup', 'Mixer', 'Annet',
@@ -45,12 +45,15 @@ function defaultState() {
     counts: [],
     log: [],
     draft: null,
+    batches: {},
   };
 }
 
 function migrate(data) {
   const d = defaultState();
-  return { ...d, ...data, rawItems: data.rawItems || [], settings: { ...d.settings, ...(data.settings || {}) } };
+  // Batcher lå en kort stund inne i tellingen (v27); flytt dem til Lager.
+  const batches = data.batches || { ...(data.draft?.batches || {}) };
+  return { ...d, ...data, batches, rawItems: data.rawItems || [], settings: { ...d.settings, ...(data.settings || {}) } };
 }
 
 function load() {
@@ -570,6 +573,7 @@ const SHOW_FILTERS = {
   important: ['Kun ★ viktige', (p) => p.important],
   regular: ['Kun ↻ jevnlig sjekk', (p) => p.regular],
   menu: ['Kun 🍸 meny', (p) => p.menu],
+  batch: ['Kun batcher', () => false],
 };
 
 function renderInventory() {
@@ -598,15 +602,59 @@ function renderInventoryList() {
   if (!list) return;
   const items = state.products.filter((p) =>
     matchesQuery(p, invFilter.q) && (!invFilter.cat || p.category === invFilter.cat) && (SHOW_FILTERS[invFilter.show] || SHOW_FILTERS[''])[1](p));
-  $('#inv-summary').textContent = `${items.length} produkter · ${krc(sum(items, productValue))} ${vatLabel()}`;
-  if (!items.length) {
+  const batchHtml = inventoryBatches();
+  $('#inv-summary').textContent = invFilter.show === 'batch'
+    ? `Batcher · ${krx(batchesValue(currentBatches()))} ${vatLabel()}`
+    : `${items.length} produkter · ${krc(sum(items, productValue))} ${vatLabel()}`;
+  if (!items.length && !batchHtml) {
     list.innerHTML = `<div class="card empty">${state.products.length ? 'Ingen treff.' :
       'Ingen produkter enda. Trykk på + for å legge til.'}</div>`;
     return;
   }
   list.innerHTML = groupByCategory(items).map(([cat, ps]) => `
     <div class="group-label">${esc(cat)}</div>
-    <div class="list">${ps.map(inventoryRow).join('')}</div>`).join('');
+    <div class="list">${ps.map(inventoryRow).join('')}</div>`).join('') + batchHtml;
+}
+
+// Batcher (cheater bottles) nederst i Lager: ca. antall drinker per drink, − / + med 5 om gangen.
+function inventoryBatches() {
+  if (invFilter.cat || !['', 'batch'].includes(invFilter.show)) return '';
+  const q = normName(invFilter.q);
+  const drinks = batchDrinks().filter((d) => !q || normName(d.name).includes(q));
+  if (!drinks.length) return invFilter.show === 'batch' ? '<div class="card empty">Ingen drinker med spec ennå.</div>' : '';
+  return `
+    <div class="group-label batch-label">Batcher <span id="batch-sum">${krx(batchesValue(currentBatches()))}</span></div>
+    <div class="list">${drinks.map(batchInvRow).join('')}</div>
+    <p class="hint" style="margin:0 4px 12px">Ca. antall drinker i cheater bottlene. Verdien er uten sitrus og juice, og er ikke med i lagerverdien.</p>`;
+}
+function batchInvRow(d) {
+  const n = num(state.batches?.[d.id]);
+  return `
+    <div class="row batch-row" data-drink="${d.id}" style="cursor:default">
+      <div class="row-main">
+        <div class="row-title drink">${esc(d.name)}</div>
+        <div class="row-sub batch-sub">${batchSub(d)}</div>
+      </div>
+      <div class="stepper">
+        <button data-action="batch-step" data-d="-5" aria-label="Fem færre">−</button>
+        <input class="qty batch-qty" type="number" inputmode="numeric" min="0" step="1" value="${n || ''}" placeholder="0" aria-label="Antall drinker ${esc(d.name)}">
+        <button data-action="batch-step" data-d="5" aria-label="Fem flere">+</button>
+      </div>
+    </div>`;
+}
+function batchSub(d) {
+  const n = num(state.batches?.[d.id]);
+  return n > 0 ? `ca. ${fmtNum(n)} drinker · ${krx(n * batchDrinkValue(d))}` : `${krx(batchDrinkValue(d), 2)} per drink`;
+}
+function setBatch(row, n) {
+  const d = state.drinks.find((x) => x.id === row.dataset.drink);
+  if (!d) return;
+  state.batches = { ...(state.batches || {}), [d.id]: Math.max(0, Math.round(n)) };
+  $('.batch-sub', row).textContent = batchSub(d);
+  const s = $('#batch-sum');
+  if (s) s.textContent = krx(batchesValue(currentBatches()));
+  if (invFilter.show === 'batch') $('#inv-summary').textContent = `Batcher · ${krx(batchesValue(currentBatches()))} ${vatLabel()}`;
+  saveDraftSoon();
 }
 
 function inventoryRow(p) {
@@ -1181,7 +1229,6 @@ function renderCount() {
       <button class="btn" data-action="count-text">🎤 Telling fra tekst</button>
       ${state.draft.textUndo ? '<button class="btn" data-action="count-text-undo">↶ Angre innlesing</button>' : ''}
     </div>
-    <div id="cnt-pre">${batchCard()}</div>
     <div id="cnt-list"></div>
     <div class="count-footer">
       <div class="progress"><span id="cnt-progress"></span><div class="bar"><i id="cnt-bar"></i></div></div>
@@ -1252,38 +1299,14 @@ const batchDrinkValue = (d) => sum(d.ingredients.filter((i) => !isFreshIng(i)), 
 const batchDrinks = () => state.drinks.filter((d) => d.ingredients?.length).sort(sortByName);
 const batchesValue = (b) => sum(Object.values(b || {}), (x) => x.value || 0);
 
-function draftBatches() {
+// Batchene slik de står i Lager nå, med verdi (eks. mva). Lagres i tellingen når den fullføres.
+function currentBatches() {
   const b = {};
   for (const d of state.drinks) {
-    const n = num(state.draft?.batches?.[d.id]);
+    const n = num(state.batches?.[d.id]);
     if (n > 0) b[d.id] = { name: d.name, n, value: round2(n * batchDrinkValue(d)) };
   }
   return b;
-}
-
-function batchCard() {
-  const drinks = batchDrinks();
-  if (!drinks.length) return '';
-  const bt = state.draft.batches || {};
-  const open = Object.values(bt).some((n) => num(n) > 0);
-  return `
-    <details class="card prebatch" ${open ? 'open' : ''}>
-      <summary><b>Batcher</b> <span class="muted small">– cheater bottles i kjøleskapet</span>
-        <span class="batch-total" id="batch-total">${krx(batchesValue(draftBatches()))}</span></summary>
-      <p class="hint" style="margin:8px 0">Skriv ca. antall drinker. Verdien regnes fra specen, uten sitrus og juice. Flaskene i lageret påvirkes ikke.</p>
-      ${drinks.map((d) => `
-        <label class="row" style="cursor:default;padding:8px 0">
-          <div class="row-main"><div class="row-title drink">${esc(d.name)}</div>
-            <div class="row-sub batch-val" data-drink="${d.id}">${batchRowNote(d)}</div></div>
-          <input type="number" class="batch-input" data-drink="${d.id}" inputmode="numeric" min="0" step="1" value="${bt[d.id] || ''}" placeholder="0" style="width:90px;text-align:right">
-          <span class="muted small" style="width:48px">drinker</span>
-        </label>`).join('')}
-    </details>`;
-}
-function batchRowNote(d) {
-  const per = batchDrinkValue(d);
-  const n = num(state.draft?.batches?.[d.id]);
-  return `${krx(per, 2)} per drink${n > 0 ? ` · ${krx(n * per)}` : ''}`;
 }
 
 function updateCountProgress() {
@@ -1301,14 +1324,8 @@ function saveDraftSoon() {
 }
 
 V.addEventListener('input', (e) => {
-  if (e.target.classList.contains('batch-input') && state.draft) {
-    const id = e.target.dataset.drink;
-    state.draft.batches = { ...(state.draft.batches || {}), [id]: Math.max(0, num(e.target.value)) };
-    const d = state.drinks.find((x) => x.id === id);
-    const note = $(`.batch-val[data-drink="${id}"]`);
-    if (d && note) note.textContent = batchRowNote(d);
-    $('#batch-total').textContent = krx(batchesValue(draftBatches()));
-    saveDraftSoon();
+  if (e.target.classList.contains('batch-qty')) {
+    setBatch(e.target.closest('.batch-row'), num(e.target.value));
     return;
   }
   const row = e.target.closest('.count-row');
@@ -1335,7 +1352,7 @@ function finishCount() {
     return { productId: p.id, name: p.name, category: p.category, unit: p.unit, cost: p.cost, qty, prev };
   });
   const count = { id: uid(), type: state.draft.type === 'regular' ? 'regular' : 'full', date, startedAt: state.draft.startedAt, items, value: sum(items, (i) => i.qty * i.cost) };
-  const batches = draftBatches();
+  const batches = currentBatches();
   if (Object.keys(batches).length) { count.batches = batches; count.batchValue = round2(batchesValue(batches)); }
   state.counts.push(count);
   state.draft = null;
@@ -2736,7 +2753,7 @@ const actions = {
 
   'count-start': (el) => {
     const regular = el.dataset.type === 'regular';
-    state.draft = { startedAt: new Date().toISOString(), items: {}, batches: {}, type: regular ? 'regular' : 'full', ids: regular ? regularProducts().map((p) => p.id) : undefined };
+    state.draft = { startedAt: new Date().toISOString(), items: {}, type: regular ? 'regular' : 'full', ids: regular ? regularProducts().map((p) => p.id) : undefined };
     countFilter.q = '';
     countFilter.cat = '';
     save();
@@ -2749,6 +2766,13 @@ const actions = {
     render();
   },
   'count-finish': finishCount,
+  'batch-step': (el) => {
+    const row = el.closest('.batch-row');
+    const input = $('.batch-qty', row);
+    const n = Math.max(0, num(input.value) + num(el.dataset.d));
+    input.value = n || '';
+    setBatch(row, n);
+  },
   'count-text': () => countTextForm(),
   'count-text-undo': undoCountText,
   'count-text-mode': (el) => {
