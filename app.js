@@ -7,7 +7,7 @@
 
 // Nøkkelen beholdes uendret slik at eksisterende data ikke forsvinner.
 const STORAGE_KEY = 'taar.data.v1';
-const APP_VERSION = '28';
+const APP_VERSION = '29';
 const CATEGORIES = [
   'Vodka', 'Gin', 'Rom', 'Whisky', 'Tequila/Mezcal', 'Cognac/Brandy', 'Akevitt', 'Likør',
   'Bitter/Amaro', 'Bitters', 'Vermut/Aperitiff', 'Vin', 'Musserende', 'Øl/Cider', 'Sirup', 'Mixer', 'Annet',
@@ -1296,7 +1296,9 @@ function updateCountRow(row, markDone = true) {
 const FRESH_RE = /lime|sitron|lemon|appelsin|orange|grapefrukt|grapefruit|juice|\bjus\b/i;
 const isFreshIng = (ing) => !product(ing.productId) && FRESH_RE.test(ing.name || '');
 const batchDrinkValue = (d) => sum(d.ingredients.filter((i) => !isFreshIng(i)), ingredientCost) / batchOf(d); // eks. mva
-const batchDrinks = () => state.drinks.filter((d) => d.ingredients?.length).sort(sortByName);
+// Drinker som ikke lages i batch, vises ikke under Batcher (drinkene og specene ellers er urørt).
+const NOT_BATCHED = new Set(['negroni', 'vibrante', 'floreale']);
+const batchDrinks = () => state.drinks.filter((d) => d.ingredients?.length && !NOT_BATCHED.has(normName(d.name))).sort(sortByName);
 const batchesValue = (b) => sum(Object.values(b || {}), (x) => x.value || 0);
 
 // Batchene slik de står i Lager nå, med verdi (eks. mva). Lagres i tellingen når den fullføres.
