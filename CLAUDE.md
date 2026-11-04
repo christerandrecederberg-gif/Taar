@@ -13,7 +13,7 @@ Personlig lager-app for Christer, som driver baren **Tår Cocktails & Kaffe** i 
 - Statisk PWA uten byggesteg: `index.html`, `app.js` (all logikk), `styles.css`, `sw.js` (service worker), `manifest.webmanifest`, `logo.svg`, `fonts/`, `vendor/zxing.min.js` (strekkodeleser).
 - **Data ligger bare i localStorage på telefonen**, med nøkkelen `taar.data.v1`, som aldri skal endres. Vi kan ikke lese eller skrive dataene hans herfra. Endringer i dataene må gå via knapper i appen, for eksempel innebygde lister han trykker på, import-skjemaer, backup og gjenoppretting.
 - Publiseres med GitHub Pages fra branchen `claude/dazzling-dijkstra-ckw04x`: https://christerandrecederberg-gif.github.io/Taar/ . PR til `main` er åpen: christerandrecederberg-gif/Taar#1.
-- **Ved hver endring:** øk `APP_VERSION` i `app.js` og `VERSION` i `sw.js` med 1 (nå: 25 / v25). Commit, push, og be Christer lukke og åpne appen og sjekke versjonsnummeret nederst under Mer.
+- **Ved hver endring:** øk `APP_VERSION` i `app.js` og `VERSION` i `sw.js` med 1 (nå: 26 / v26). Commit, push, og be Christer lukke og åpne appen og sjekke versjonsnummeret nederst under Mer.
 - Service workeren henter fra nettet først, så oppdateringer kommer ved neste åpning.
 - Test med Playwright og Chromium (`/opt/node-tools/node_modules/playwright`, iPhone 13-emulering) mot `python3 -m http.server`. Sjekk at det ikke kommer feil i konsollen.
 - Ingen synk eller backend. Det ble valgt bort. GitHub-token-synk ble blokkert av sikkerhetsregler.
@@ -29,6 +29,7 @@ Farger: Cobalt `#2C438C`, Navy `#0B1240`, Linen `#EDE8DE`, aksenter `#DE906E`, `
 - **Merker:** ★ Viktig (rødt «Må bestilles», teller på app-ikonet), ↻ Jevnlig sjekk og 🍸 Meny. Siden «Merk flasker».
 - **Varselgrense:** standard 0,3 flaske. Verktøy under Mer endrer mange på én gang.
 - **Telling:** ↻ jevnlig sjekk (hver 14. dag) og full telling (hvert halvår). Forbruket regnes per flaske. Faktisk pour cost i % regnes bare på full telling.
+- **Telling fra tekst (v26):** knappen «🎤 Telling fra tekst» i tellingen. Christer dikterer med mikrofonen på iPhone-tastaturet eller limer inn tekst («Altos Plata null komma åtte, Cynar to»). Bryteren **Baren** setter tallene, mens **Lageret** legger dem oppå det som er talt (er flasken ikke talt ennå, brukes bare lager-tallet). Flasker han ikke nevner, står urørt. Sjekkliste med grønt, gult og rødt før noe lagres. Rettelser huskes i `settings.countAliases`, og «↶ Angre innlesing» angrer siste innlesing.
 - **Prebatch i telling:** antall drinker i kjøleskapet omregnes til flasker via oppskriftene.
 - **Pour cost:**
   - Drinker har batchstørrelse og ingredienser i cl, g, dash, dråper eller stk. Gram regnes om med tetthet per kategori.

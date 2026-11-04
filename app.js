@@ -7,7 +7,7 @@
 
 // Nøkkelen beholdes uendret slik at eksisterende data ikke forsvinner.
 const STORAGE_KEY = 'taar.data.v1';
-const APP_VERSION = '25';
+const APP_VERSION = '26';
 const CATEGORIES = [
   'Vodka', 'Gin', 'Rom', 'Whisky', 'Tequila/Mezcal', 'Cognac/Brandy', 'Akevitt', 'Likør',
   'Bitter/Amaro', 'Bitters', 'Vermut/Aperitiff', 'Vin', 'Musserende', 'Øl/Cider', 'Sirup', 'Mixer', 'Annet',
@@ -977,10 +977,10 @@ function saveBulk(form) {
 const normName = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
   .replace(/['’`´]/g, '').replace(/\b\d+([.,]\d+)?\s*(cl|ml|l|%|vol)\b/g, ' ').replace(/[^a-z0-9æøå]+/g, ' ').trim();
 
-function matchProduct(name) {
+function matchProduct(name, list = state.products) {
   const n = normName(name);
   if (!n) return null;
-  const all = state.products.map((p) => ({ p, k: normName(p.name) }));
+  const all = list.map((p) => ({ p, k: normName(p.name) }));
   const exact = all.find((x) => x.k === n);
   if (exact) return exact.p;
   const contains = all.filter((x) => x.k && (x.k.includes(n) || n.includes(x.k))).sort((a, b) => b.k.length - a.k.length);
@@ -1177,6 +1177,10 @@ function renderCount() {
       <select id="cnt-cat">${categoryOptions(countFilter.cat, true)}</select>
       <button class="chip" data-action="scan-count">${SCAN_ICON} Skann</button>
     </div>
+    <div class="btn-row" style="margin:0 0 12px">
+      <button class="btn" data-action="count-text">🎤 Telling fra tekst</button>
+      ${state.draft.textUndo ? '<button class="btn" data-action="count-text-undo">↶ Angre innlesing</button>' : ''}
+    </div>
     <div id="cnt-pre">${prebatchCard()}</div>
     <div id="cnt-list"></div>
     <div class="count-footer">
@@ -1336,6 +1340,293 @@ function countRow(c) {
         <div class="row-sub">${isFullCount(c) ? 'Full telling' : '↻ Jevnlig sjekk'} · ${c.items.length} ${c.items.length === 1 ? 'produkt' : 'produkter'}</div></div>
       <div class="row-end"><b>${krc(c.value)}</b></div>
     </a>`;
+}
+
+/* ---------- Telling fra tekst (diktering med mikrofonen på iPhone-tastaturet) ----------
+   «Altos Plata null komma åtte, Cynar to» → navn + tall. To typer innlesing:
+   Baren = tallene erstatter det som står i tellingen. Lageret = tallene legges oppå det som er talt
+   (flasker som ikke er talt ennå, får bare lager-tallet). Flasker som ikke nevnes, står urørt.
+   Ingenting lagres før sjekklista er godkjent. Rettelser huskes som alias i state.settings.countAliases. */
+const CT_NUMS = {
+  null: 0, zero: 0, en: 1, ett: 1, ei: 1, one: 1, to: 2, two: 2, tre: 3, three: 3, fire: 4, four: 4, fem: 5, five: 5,
+  seks: 6, six: 6, sju: 7, syv: 7, seven: 7, atte: 8, eight: 8, ni: 9, nine: 9, ti: 10, ten: 10, elleve: 11, eleven: 11,
+  tolv: 12, twelve: 12, tretten: 13, thirteen: 13, fjorten: 14, fourteen: 14, femten: 15, fifteen: 15, seksten: 16, sixteen: 16,
+  sytten: 17, seventeen: 17, atten: 18, eighteen: 18, nitten: 19, nineteen: 19, tjue: 20, twenty: 20,
+};
+const CT_HALF = new Set(['halv', 'half']);
+const CT_ONE = new Set(['en', 'ei', 'ett', 'a', 'one']);
+const CT_DEC = new Set(['komma', 'point', 'punkt']);
+const CT_AND = new Set(['og', 'and']);
+const CT_FILLER = new Set(['flaske', 'flasker', 'flaskene', 'fl', 'stk', 'stykk', 'stykker', 'bottle', 'bottles', 'full', 'fulle',
+  'igjen', 'left', 'neste', 'next', 'er', 'is', 'har', 'pa', 'cirka', 'ca', 'omtrent', 'about']);
+
+function ctTokens(text) {
+  return String(text || '').replace(/(\d),(\d)/g, '$1.$2').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/['’`´]/g, '').split(/[^a-z0-9æø.]+/).map((t) => t.replace(/^\.(?!\d)|\.+$/g, '')).filter(Boolean);
+}
+
+// Leser ett tall fra posisjon i: «0.8», «null komma åtte», «to og en halv», «en halv», «halvannen».
+function ctValue(t, i) {
+  const w = t[i];
+  if (w === undefined) return null;
+  if (CT_HALF.has(w)) return { value: 0.5, next: i + 1 };
+  if (w === 'halvannen') return { value: 1.5, next: i + 1 };
+  if (CT_ONE.has(w) && CT_HALF.has(t[i + 1])) return { value: 0.5, next: i + 2 };
+  let n;
+  if (/^\d+(\.\d+)?$/.test(w) || /^\.\d+$/.test(w)) n = parseFloat(w);
+  else if (w in CT_NUMS) n = CT_NUMS[w];
+  else return null;
+  let j = i + 1;
+  if (CT_DEC.has(t[j]) && t[j + 1] !== undefined) {
+    const d = t[j + 1];
+    if (/^\d+$/.test(d)) { n += parseFloat(`0.${d}`); j += 2; }
+    else if (d in CT_NUMS && CT_NUMS[d] < 10) { n += CT_NUMS[d] / 10; j += 2; }
+  }
+  if (CT_AND.has(t[j]) && CT_ONE.has(t[j + 1]) && CT_HALF.has(t[j + 2])) { n += 0.5; j += 3; }
+  return { value: n, next: j };
+}
+
+// Et tall som hører til navnet (f.eks. «Monkey 47», «Zacapa 23»): ordparet finnes i et flaskenavn og et nytt tall følger.
+function ctNamePart(name, t, i, names) {
+  if (!name.length) return false;
+  const pair = ` ${name[name.length - 1]} ${t[i]} `;
+  if (!names.some((k) => k.includes(pair))) return false;
+  let j = i + 1;
+  while (CT_FILLER.has(t[j])) j++;
+  return !!ctValue(t, j);
+}
+
+function parseCountText(text, list) {
+  const t = ctTokens(text);
+  const names = list.map((p) => ` ${normName(p.name)} `);
+  const out = [];
+  let name = [];
+  for (let i = 0; i < t.length;) {
+    const v = ctValue(t, i);
+    if (v && !ctNamePart(name, t, i, names)) {
+      out.push({ heard: name.join(' '), value: round2(v.value) });
+      name = [];
+      i = v.next;
+      while (CT_FILLER.has(t[i])) i++;
+      if (CT_AND.has(t[i])) i++;
+      continue;
+    }
+    if (!name.length && (CT_FILLER.has(t[i]) || CT_AND.has(t[i]))) { i++; continue; }
+    name.push(t[i]);
+    i++;
+  }
+  if (name.length) out.push({ heard: name.join(' '), value: null });
+  return out;
+}
+
+function levenshtein(a, b) {
+  if (a === b) return 0;
+  let prev = Array.from({ length: b.length + 1 }, (_, k) => k);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    prev = cur;
+  }
+  return prev[b.length];
+}
+const similarity = (a, b) => (a && b ? 1 - levenshtein(a, b) / Math.max(a.length, b.length) : 0);
+
+// Finner flasken for et opplest navn. sure = grønt, ellers gult (sjekk selv).
+function matchSpoken(heard, list) {
+  const n = normName(heard);
+  if (!n) return { p: null, sure: false };
+  const alias = (state.settings.countAliases || {})[n];
+  const ap = alias && list.find((p) => p.id === alias);
+  if (ap) return { p: ap, sure: true };
+  if (n.length >= 3) {
+    const m = matchProduct(heard, list);
+    if (m) {
+      const k = normName(m.name).split(' ');
+      return { p: m, sure: n.split(' ').every((w) => k.includes(w)) };
+    }
+  }
+  let best = null;
+  let bestScore = 0;
+  const nw = n.split(' ').length;
+  for (const p of list) {
+    const k = normName(p.name);
+    const kw = k.split(' ');
+    const score = Math.max(similarity(n, k), similarity(n, kw.slice(0, nw).join(' ')),
+      similarity(n, kw.filter((w) => !GENERIC_WORDS.has(w)).join(' ')));
+    if (score > bestScore) { best = p; bestScore = score; }
+  }
+  return bestScore >= 0.6 ? { p: best, sure: false } : { p: null, sure: false };
+}
+
+const fmtCt = (v) => fmtNum(v, Math.round(v * 100) % 10 ? 2 : v % 1 ? 1 : 0);
+const draftTotal = (it) => round2(it.full + it.open);
+
+function setCountTotal(p, it, total) {
+  total = Math.max(0, total);
+  if (!isBottle(p)) { it.full = round2(total); it.open = 0; return; }
+  let full = Math.floor(total + 1e-9);
+  let open = round1(total - full);
+  if (open >= 1) { full += 1; open = 0; }
+  it.full = full;
+  it.open = open;
+}
+
+// Summerer valgte rader per flaske og regner ut hva tellingen blir.
+function countTextPlan(rows, choices, mode) {
+  const plan = new Map();
+  rows.forEach((r, i) => {
+    const p = choices[i] && product(choices[i]);
+    if (!p || r.value === null) return;
+    if (!plan.has(p.id)) {
+      const it = state.draft.items[p.id];
+      const base = mode === 'lager' && it?.done ? draftTotal(it) : 0;
+      plan.set(p.id, { p, base, add: 0, lines: 0, counted: !!it?.done });
+    }
+    const x = plan.get(p.id);
+    x.add = round2(x.add + r.value);
+    x.lines++;
+  });
+  return plan;
+}
+
+let ctRedraw = () => {};
+function countTextForm() {
+  const mode = state.draft.textMode || 'bar';
+  const list = draftProducts();
+  openSheet(`
+    <h2>Telling fra tekst</h2>
+    <div class="seg" role="group" aria-label="Hvor teller du?">
+      <button type="button" data-action="count-text-mode" data-mode="bar" class="${mode === 'bar' ? 'on' : ''}">Baren<small>sett tall</small></button>
+      <button type="button" data-action="count-text-mode" data-mode="lager" class="${mode === 'lager' ? 'on' : ''}">Lageret<small>legg til</small></button>
+    </div>
+    <p class="hint" id="ct-mode-hint" style="margin-top:0"></p>
+    <form data-form="count-text">
+      <label class="field"><span>Tekst</span>
+        <textarea name="text" rows="5" placeholder="Altos Plata 0,8
+Cynar 1,2
+Campari 2" style="font-size:.95rem">${esc(state.draft.textPending || '')}</textarea></label>
+      <p class="hint">Trykk på 🎤 nederst på tastaturet og les opp navn og tall, f.eks. «Altos Plata null komma åtte, Cynar to». Du kan også lime inn en ferdig melding.</p>
+      <div id="ct-rows"></div>
+      <div class="btn-row"><button class="btn primary" id="ct-submit" disabled>Legg inn i tellingen</button></div>
+    </form>`, (root) => {
+    const form = $('form', root);
+    const picked = {}; // valg du har gjort selv, per opplest navn
+    let rows = [];
+    const opts = (sel) => '<option value="">Hopp over</option>' + groupByCategory([...list]).map(([cat, ps]) => `<optgroup label="${esc(cat)}">${ps.map((p) =>
+      `<option value="${p.id}" ${p.id === sel ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</optgroup>`).join('');
+    const choices = () => rows.map((r, i) => form.elements[`map_${i}`]?.value || '');
+    const updateTotals = () => {
+      const m = state.draft.textMode || 'bar';
+      $('#ct-mode-hint', root).textContent = m === 'bar'
+        ? 'Tallene du leser opp, erstatter det som står i tellingen.'
+        : 'Tallene legges oppå det du har talt i baren. Flasker som ikke er talt ennå, får bare lager-tallet.';
+      const ch = choices();
+      const plan = countTextPlan(rows, ch, m);
+      rows.forEach((r, i) => {
+        const el = $(`.ct-res[data-i="${i}"]`, root);
+        if (!el) return;
+        const x = plan.get(ch[i]);
+        if (!x) { el.textContent = ''; return; }
+        const total = x.base + x.add;
+        el.textContent = m === 'lager' && x.counted
+          ? `${fmtCt(x.base)} + ${fmtCt(x.add)} = ${qtyLabel(x.p, total)}`
+          : `→ ${qtyLabel(x.p, total)}${m === 'lager' ? ' (ikke talt i baren)' : ''}`;
+        if (x.lines > 1) el.textContent += ` · ${x.lines} linjer`;
+      });
+      const n = plan.size;
+      const btn = $('#ct-submit', root);
+      btn.disabled = !n;
+      btn.textContent = n ? `Legg inn ${n} ${n === 1 ? 'flaske' : 'flasker'} i tellingen` : 'Legg inn i tellingen';
+    };
+    const draw = () => {
+      rows = parseCountText(form.elements.text.value, list);
+      $('#ct-rows', root).innerHTML = rows.length ? `<div class="list">${rows.map((r, i) => {
+        if (r.value === null) {
+          return `<div class="row ct-row miss" style="cursor:default"><div class="row-main">
+            <div class="row-title" style="font-size:1.05rem">«${esc(r.heard)}»</div>
+            <div class="row-sub">Mangler tall – blir ikke lagt inn</div></div></div>`;
+        }
+        if (!r.heard) {
+          return `<div class="row ct-row miss" style="cursor:default"><div class="row-main">
+            <div class="row-title" style="font-size:1.05rem">${fmtCt(r.value)}</div>
+            <div class="row-sub">Tall uten navn – blir ikke lagt inn</div></div></div>`;
+        }
+        const key = normName(r.heard);
+        const m = matchSpoken(r.heard, list);
+        const sel = key in picked ? picked[key] : m.p?.id || '';
+        const cls = key in picked || m.sure ? '' : m.p ? 'unsure' : 'miss';
+        const status = key in picked ? 'Valgt av deg' : m.sure ? 'Funnet' : m.p ? 'Usikker – sjekk flasken' : 'Ikke funnet – velg flaske';
+        return `
+          <div class="row ct-row ${cls}" style="cursor:default;flex-wrap:wrap">
+            <div class="row-main"><div class="row-title" style="font-size:1.05rem">«${esc(r.heard)}» ${fmtCt(r.value)}</div>
+              <div class="row-sub">${status}</div></div>
+            <div class="row-end ct-res small" data-i="${i}"></div>
+            <select name="map_${i}" data-key="${esc(key)}" style="flex:1 1 100%">${opts(sel)}</select>
+          </div>`;
+      }).join('')}</div>` : '';
+      updateTotals();
+    };
+    form.elements.text.addEventListener('input', () => {
+      state.draft.textPending = form.elements.text.value;
+      saveDraftSoon();
+      draw();
+    });
+    form.addEventListener('change', (e) => {
+      if (e.target.tagName !== 'SELECT') return;
+      picked[e.target.dataset.key] = e.target.value;
+      const row = e.target.closest('.ct-row');
+      row.classList.remove('unsure', 'miss');
+      $('.row-sub', row).textContent = 'Valgt av deg';
+      updateTotals();
+    });
+    ctRedraw = updateTotals;
+    draw();
+    if (!form.elements.text.value) form.elements.text.focus();
+  });
+}
+
+function saveCountText(form) {
+  const mode = state.draft.textMode || 'bar';
+  const list = draftProducts();
+  const rows = parseCountText(form.elements.text.value, list);
+  const choices = rows.map((r, i) => form.elements[`map_${i}`]?.value || '');
+  const plan = countTextPlan(rows, choices, mode);
+  if (!plan.size) return toast('Ingen flasker valgt');
+  const undo = {};
+  for (const [id] of plan) undo[id] = state.draft.items[id] ? { ...state.draft.items[id] } : null;
+  for (const x of plan.values()) {
+    const it = draftItem(x.p);
+    setCountTotal(x.p, it, x.base + x.add);
+    it.done = true;
+  }
+  // Husk hva du sa om flasken, så den kjennes igjen neste gang.
+  const aliases = { ...(state.settings.countAliases || {}) };
+  rows.forEach((r, i) => {
+    const p = choices[i] && product(choices[i]);
+    const key = normName(r.heard);
+    if (p && key && key !== normName(p.name)) aliases[key] = p.id;
+  });
+  state.settings.countAliases = aliases;
+  state.draft.textUndo = { mode, items: undo };
+  state.draft.textPending = '';
+  save();
+  closeSheet();
+  toast(`${plan.size} ${plan.size === 1 ? 'flaske' : 'flasker'} lagt inn${mode === 'lager' ? ' fra lageret' : ''}`);
+  render();
+}
+
+function undoCountText() {
+  const u = state.draft?.textUndo;
+  if (!u) return;
+  if (!confirm(`Angre siste innlesing (${Object.keys(u.items).length} flasker)?`)) return;
+  for (const [id, it] of Object.entries(u.items)) {
+    if (it) state.draft.items[id] = it;
+    else delete state.draft.items[id];
+  }
+  state.draft.textUndo = null;
+  save();
+  toast('Innlesingen er angret');
+  render();
 }
 
 /* ============================================================
@@ -2417,6 +2708,14 @@ const actions = {
     render();
   },
   'count-finish': finishCount,
+  'count-text': () => countTextForm(),
+  'count-text-undo': undoCountText,
+  'count-text-mode': (el) => {
+    state.draft.textMode = el.dataset.mode;
+    saveDraftSoon();
+    $$('.seg button', sheetBody).forEach((b) => b.classList.toggle('on', b === el));
+    ctRedraw();
+  },
   'count-step': (el) => {
     const row = el.closest('.count-row');
     const it = draftItem(product(row.dataset.id));
@@ -2524,6 +2823,7 @@ const forms = {
   product: saveProduct,
   bulk: saveBulk,
   receive: saveReceive,
+  'count-text': saveCountText,
   specs: saveSpecs,
   raw: saveRaw,
   'link-barcode': (form) => {

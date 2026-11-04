@@ -384,3 +384,17 @@ a.chip { text-decoration: none; color: var(--text); }
 details.prebatch summary { cursor: pointer; list-style: none; }
 details.prebatch summary::-webkit-details-marker { display: none; }
 details.prebatch .row { border-top: 1px solid var(--line); min-height: 0; }
+
+/* Telling fra tekst */
+.seg { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0 12px; }
+.seg button {
+  min-height: 54px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--muted);
+  font-family: var(--font-ui); font-size: 1rem; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+}
+.seg button small { font-size: .75rem; font-weight: 400; }
+.seg button.on { border-color: var(--brand); background: color-mix(in srgb, var(--brand) 10%, var(--surface)); color: var(--brand); font-weight: 600; }
+.ct-row { border-left: 4px solid var(--ok); }
+.ct-row.unsure { border-left-color: var(--peach); background: color-mix(in srgb, var(--peach) 12%, transparent); }
+.ct-row.miss { border-left-color: var(--bad); background: color-mix(in srgb, var(--bad) 6%, transparent); }
+.ct-row .ct-res { white-space: normal; font-weight: 600; color: var(--brand); max-width: 55%; }
+.ct-row .row-title { white-space: normal; }
